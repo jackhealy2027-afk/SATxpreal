@@ -1,0 +1,2124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SATxp — Level Up Your SAT/ACT</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyD1avOSPg4khHadj1x3K2A8x6NL1LZXF_c",
+      authDomain: "investing-f.firebaseapp.com",
+      projectId: "investing-f",
+      storageBucket: "investing-f.firebasestorage.app",
+      messagingSenderId: "334375052075",
+      appId: "1:334375052075:web:df3be663d1c5dd190cdb6e"
+    };
+    firebase.initializeApp(firebaseConfig);
+    window.fbAuth = firebase.auth();
+    window.fbDb = firebase.firestore();
+    // SESSION persistence: user must sign in every time they open the app
+    window.fbAuth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+  </script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #060612; }
+    input::placeholder { color: #334155; }
+    button { transition: all 0.15s; }
+    button:active { opacity: 0.8; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+    @keyframes orbFloat {
+      0%,100% { transform: translate(0,0) scale(1); }
+      33% { transform: translate(30px,-20px) scale(1.05); }
+      66% { transform: translate(-20px,30px) scale(0.97); }
+    }
+    @keyframes particleDrift {
+      0%,100% { transform: translateY(0) rotate(0deg); opacity: 0.4; }
+      50% { transform: translateY(-30px) rotate(15deg); opacity: 0.8; }
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeUp {
+      0% { opacity: 0; transform: translateY(10px); }
+      20% { opacity: 1; transform: translateY(0); }
+      80% { opacity: 1; }
+      100% { opacity: 0; transform: translateY(-20px); }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ─── FIREBASE HELPERS ─────────────────────────────────────────────────────────
+const fbAuth = window.fbAuth;
+const db = window.fbDb;
+
+async function signInWithGoogle() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  provider.addScope("email");
+  provider.addScope("profile");
+  try {
+    const result = await fbAuth.signInWithPopup(provider);
+    const user = result.user;
+    const displayName = user.displayName || "Student";
+    await db.collection("users").doc(user.uid).set({
+      name: displayName,
+      nameLower: displayName.toLowerCase(),
+      email: user.email,
+      avatar: user.photoURL || "",
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return { uid: user.uid, name: user.displayName || "Student", email: user.email };
+  } catch(e) {
+    console.error("🔴 Google sign-in error:", e.code, e.message);
+    // If popup is blocked or not supported, fall back to redirect
+    if (e.code === "auth/popup-blocked" || e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") {
+      throw e; // re-throw so UI can show message
+    }
+    if (e.code === "auth/operation-not-allowed") {
+      throw new Error("OPERATION_NOT_ALLOWED");
+    }
+    if (e.code === "auth/unauthorized-domain") {
+      throw new Error("UNAUTHORIZED_DOMAIN");
+    }
+    throw e;
+  }
+}
+
+// Handle redirect result on page load (fallback for popup-blocked environments)
+(async function checkRedirectResult() {
+  try {
+    const result = await fbAuth.getRedirectResult();
+    if (result && result.user) {
+      const user = result.user;
+      await window.fbDb.collection("users").doc(user.uid).set({
+        name: user.displayName || "Student",
+        email: user.email,
+        avatar: user.photoURL || "",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+  } catch(e) {
+    console.warn("Redirect result check:", e.code, e.message);
+  }
+})();
+
+async function syncXpToLeaderboard(uid, name, xp) {
+  try {
+    const rank = getRank(xp);
+    await db.collection("leaderboard").doc(uid).set({
+      name, xp, rankName: rank.name, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch(e) { console.warn("XP sync failed", e); }
+}
+
+async function fetchLeaderboard() {
+  try {
+    const snap = await db.collection("leaderboard").orderBy("xp","desc").limit(50).get();
+    return snap.docs.map(d => ({uid: d.id, ...d.data()}));
+  } catch(e) { return []; }
+}
+
+async function fetchUserProfile(uid) {
+  try {
+    const doc = await db.collection("users").doc(uid).get();
+    return doc.exists ? doc.data() : null;
+  } catch(e) { return null; }
+}
+
+async function savePremiumStatus(uid, isPremium) {
+  try {
+    await db.collection("users").doc(uid).set({ isPremium }, { merge: true });
+  } catch(e) {}
+}
+
+async function loadPremiumStatus(uid) {
+  try {
+    const doc = await db.collection("users").doc(uid).get();
+    return doc.exists ? (doc.data().isPremium || false) : false;
+  } catch(e) { return false; }
+}
+
+// ─── USER GAME DATA PERSISTENCE ───────────────────────────────────────────────
+async function saveGameData(uid, data) {
+  try {
+    // Strip undefined values (Firestore doesn't accept them)
+    const clean = Object.fromEntries(Object.entries(data).filter(([,v])=>v!==undefined));
+    await db.collection("gameData").doc(uid).set({
+      ...clean,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch(e) { console.warn("saveGameData failed:", e); }
+}
+
+async function loadGameData(uid) {
+  try {
+    const doc = await db.collection("gameData").doc(uid).get();
+    return doc.exists ? doc.data() : null;
+  } catch(e) { console.warn("loadGameData failed:", e); return null; }
+}
+
+// ─── FRIENDS SYSTEM ───────────────────────────────────────────────────────────
+async function sendFriendRequest(myUid, myName, theirUid) {
+  try {
+    // Check both directions to prevent duplicate requests
+    const [fwd, rev] = await Promise.all([
+      db.collection("friends").doc(`${myUid}_${theirUid}`).get(),
+      db.collection("friends").doc(`${theirUid}_${myUid}`).get(),
+    ]);
+    if (fwd.exists || rev.exists) return { success: false, error: "already_exists" };
+    await db.collection("friends").doc(`${myUid}_${theirUid}`).set({
+      from: myUid, fromName: myName, to: theirUid,
+      status: "pending", createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+async function acceptFriendRequest(myUid, theirUid) {
+  try {
+    // Doc is always stored as `sender_receiver` i.e. `theirUid_myUid`
+    await db.collection("friends").doc(`${theirUid}_${myUid}`).update({ status: "accepted" });
+    return { success: true };
+  } catch(e) { console.warn("acceptFriendRequest failed:", e); return { success: false }; }
+}
+
+async function declineFriendRequest(myUid, theirUid) {
+  try {
+    await db.collection("friends").doc(`${theirUid}_${myUid}`).delete();
+    return { success: true };
+  } catch(e) { return { success: false }; }
+}
+
+async function removeFriend(myUid, theirUid) {
+  try {
+    await Promise.all([
+      db.collection("friends").doc(`${myUid}_${theirUid}`).delete().catch(()=>{}),
+      db.collection("friends").doc(`${theirUid}_${myUid}`).delete().catch(()=>{}),
+    ]);
+    return { success: true };
+  } catch(e) { return { success: false }; }
+}
+
+async function fetchFriends(uid) {
+  try {
+    const [sent, received] = await Promise.all([
+      db.collection("friends").where("from","==",uid).where("status","==","accepted").get(),
+      db.collection("friends").where("to","==",uid).where("status","==","accepted").get(),
+    ]);
+    const friendUids = [
+      ...sent.docs.map(d => d.data().to),
+      ...received.docs.map(d => d.data().from)
+    ];
+    if (!friendUids.length) return [];
+    // Fetch leaderboard data (has XP) + user data (has name) in parallel
+    const [lbProfiles, userProfiles] = await Promise.all([
+      Promise.all(friendUids.map(id => db.collection("leaderboard").doc(id).get())),
+      Promise.all(friendUids.map(id => db.collection("users").doc(id).get())),
+    ]);
+    return friendUids.map((fuid, i) => {
+      const lb = lbProfiles[i]; const usr = userProfiles[i];
+      const lbData = lb.exists ? lb.data() : {};
+      const usrData = usr.exists ? usr.data() : {};
+      return { uid: fuid, name: lbData.name || usrData.name || "Student", xp: lbData.xp || 0, rankName: lbData.rankName || "Freshman" };
+    });
+  } catch(e) { console.warn("fetchFriends error:", e); return []; }
+}
+
+async function fetchPendingRequests(uid) {
+  try {
+    const snap = await db.collection("friends").where("to","==",uid).where("status","==","pending").get();
+    return snap.docs.map(d=>({id:d.id,...d.data()}));
+  } catch(e) { console.warn("fetchPendingRequests error:", e); return []; }
+}
+
+async function searchUsers(query) {
+  if (!query || !query.trim()) return [];
+  try {
+    // Prefix search on name field
+    const q = query.trim();
+    const snap = await db.collection("users")
+      .orderBy("name")
+      .startAt(q)
+      .endAt(q + "\uf8ff")
+      .limit(10)
+      .get();
+    return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+  } catch(e) {
+    console.warn("searchUsers prefix query failed, falling back to exact match:", e.message);
+    try {
+      // Fallback: exact match
+      const snap = await db.collection("users").where("name","==",query.trim()).limit(10).get();
+      return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+    } catch(e2) { return []; }
+  }
+}
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const RANKS = [
+  { name:"Freshman",      min:0,     max:499,    color:"#94a3b8", icon:"📚" },
+  { name:"Scholar",       min:500,   max:1499,   color:"#22c55e", icon:"🎓" },
+  { name:"Honor Student", min:1500,  max:3499,   color:"#3b82f6", icon:"⭐" },
+  { name:"Dean's List",   min:3500,  max:6999,   color:"#a855f7", icon:"🏆" },
+  { name:"Valedictorian", min:7000,  max:14999,  color:"#a78bfa", icon:"👑" },
+  { name:"Ivy Bound",     min:15000, max:Infinity,color:"#c084fc", icon:"🔥" },
+];
+
+const SUBJECTS = [
+  { id:"SAT Math",    label:"SAT Math",    icon:"📐", color:"#3b82f6", desc:"Algebra, Geometry, Stats" },
+  { id:"SAT Reading", label:"SAT Reading", icon:"📖", color:"#22c55e", desc:"Comprehension, Vocab, Evidence" },
+  { id:"ACT Math",    label:"ACT Math",    icon:"🧮", color:"#a78bfa", desc:"Pre-Algebra through Trig" },
+  { id:"ACT English", label:"ACT English", icon:"✍️", color:"#f59e0b", desc:"Grammar, Punctuation, Style" },
+  { id:"ACT Science", label:"ACT Science", icon:"🔬", color:"#ef4444", desc:"Data, Research, Conflicting Views" },
+  { id:"ACT Reading", label:"ACT Reading", icon:"📚", color:"#c084fc", desc:"Literary, Social, Humanities" },
+];
+
+const SKILLS = {
+  "SAT Math":    ["Linear Equations","Systems of Equations","Quadratic Equations","Exponents & Radicals","Ratios & Proportions","Percentages","Functions","Geometry","Statistics & Data","Word Problems"],
+  "SAT Reading": ["Main Idea","Vocabulary in Context","Evidence-Based Questions","Inference","Author's Purpose","Passage Structure","Paired Passages"],
+  "ACT English": ["Punctuation","Grammar & Usage","Sentence Structure","Rhetorical Skills","Organization","Style"],
+  "ACT Math":    ["Pre-Algebra","Elementary Algebra","Intermediate Algebra","Coordinate Geometry","Plane Geometry","Trigonometry"],
+  "ACT Science": ["Data Representation","Research Summaries","Conflicting Viewpoints"],
+  "ACT Reading": ["Literary Narrative","Social Science","Humanities","Natural Science"],
+};
+
+const MOCK_EXAM_CONFIGS = {
+  SAT: [
+    { subject:"SAT Math",    count:22, timeMinutes:35 },
+    { subject:"SAT Reading", count:22, timeMinutes:32 },
+  ],
+  ACT: [
+    { subject:"ACT English", count:10, timeMinutes:15 },
+    { subject:"ACT Math",    count:15, timeMinutes:20 },
+    { subject:"ACT Reading", count:10, timeMinutes:15 },
+    { subject:"ACT Science", count:9,  timeMinutes:13 },
+  ],
+};
+
+const FREE_LIMIT = 15;
+const SR_INTERVALS = [0, 4, 24, 72, 168, 336];
+
+// ─── DAILY TRACKING ───────────────────────────────────────────────────────────
+// Daily usage now tracked in Firestore per-user (see handleAnswer + loadGameData)
+// These stubs kept for backward compat but are no longer the source of truth
+
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function getRank(xp) { return RANKS.find(r => xp >= r.min && xp <= r.max) || RANKS[0]; }
+function getSkillMastery(d) { if (!d || d.attempts===0) return 0; return Math.round((d.correct/d.attempts)*100); }
+function getWeakSkills(sm) { return Object.entries(sm).filter(([,v])=>v.attempts>=2).sort((a,b)=>getSkillMastery(a[1])-getSkillMastery(b[1])).slice(0,3).map(([k])=>k); }
+function getDueCards(q) { return q.filter(c=>c.nextReview<=Date.now()); }
+
+// ─── SCORE PREDICTOR LOGIC ────────────────────────────────────────────────────
+function predictScores(skillMap, testType) {
+  const subjectsToCheck = testType==="ACT"
+    ? ["ACT Math","ACT English","ACT Reading","ACT Science"]
+    : testType==="SAT" ? ["SAT Math","SAT Reading"]
+    : ["SAT Math","SAT Reading","ACT Math","ACT English","ACT Reading","ACT Science"];
+  const sections = {};
+  subjectsToCheck.forEach(subId => {
+    const skills = SKILLS[subId]||[];
+    const attempted = skills.filter(sk=>skillMap[sk]&&skillMap[sk].attempts>0);
+    if (!attempted.length) { sections[subId]=null; return; }
+    const avgM = attempted.reduce((a,sk)=>a+getSkillMastery(skillMap[sk]),0)/attempted.length;
+    const coverage = attempted.length/skills.length;
+    const adj = avgM*(0.6+0.4*coverage);
+    sections[subId] = subId.startsWith("SAT")
+      ? Math.round((200+(adj/100)*600)/10)*10
+      : Math.max(1,Math.min(36,Math.round(1+(adj/100)*35)));
+  });
+  const satParts = [sections["SAT Math"],sections["SAT Reading"]].filter(Boolean);
+  const actParts = [sections["ACT Math"],sections["ACT English"],sections["ACT Reading"],sections["ACT Science"]].filter(Boolean);
+  return {
+    sections,
+    satComposite: satParts.length===2 ? satParts[0]+satParts[1] : null,
+    actComposite: actParts.length===4 ? Math.round(actParts.reduce((a,b)=>a+b,0)/4) : null,
+  };
+}
+
+function getCollegeMatch(sat) {
+  if (!sat) return [];
+  const list = [
+    { name:"Harvard / MIT / Yale",  range:[1550,1600], color:"#a78bfa" },
+    { name:"Duke / Northwestern",   range:[1510,1560], color:"#818cf8" },
+    { name:"UCLA / Michigan",       range:[1420,1510], color:"#3b82f6" },
+    { name:"UNC / Wisconsin",       range:[1350,1430], color:"#22c55e" },
+    { name:"Ohio State / ASU",      range:[1280,1360], color:"#f59e0b" },
+    { name:"Most State Schools",    range:[1100,1290], color:"#94a3b8" },
+  ];
+  return list.map(c=>({
+    ...c,
+    fit: sat>=c.range[0]?"reach":sat>=c.range[0]-80?"match":sat>=c.range[0]-160?"likely":null
+  })).filter(c=>c.fit);
+}
+
+// ─── AI API (via Vercel backend) ─────────────────────────────────────────────
+// Replace this URL with your Vercel deployment URL after deploying
+const BACKEND_URL = "https://sat-kohl.vercel.app";
+
+async function callClaude(prompt, maxTokens=1000) {
+  // Get the current user's Firebase ID token to authenticate the request
+  const user = window.fbAuth.currentUser;
+  if (!user) throw new Error("Please sign in to use AI features.");
+
+  const idToken = await user.getIdToken();
+  const isPremium = !!(window._satxpIsPremium);
+
+  const res = await fetch(`${BACKEND_URL}/api/claude`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ prompt, maxTokens, isPremium }),
+  });
+
+  if (res.status === 429) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error("RATE_LIMITED:" + (data.error || "Daily limit reached."));
+  }
+  if (res.status === 401) {
+    throw new Error("Please sign in to use AI features.");
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Server error ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data.text || "";
+}
+
+async function generateQuestion({ subject, skill, difficulty, testType, wrongSkills, recentWrong }) {
+  const diffLabel = difficulty===1?"easy":difficulty===2?"medium":"hard";
+  const prompt = `You are an expert ${testType} tutor. Generate a single ${diffLabel} ${subject} question testing: "${skill}".
+${wrongSkills?.length?`Student struggled with: ${wrongSkills.join(", ")}.`:""}
+${recentWrong?.length?`Don't repeat: ${recentWrong.slice(0,3).join("; ")}.`:""}
+Rules: Realistic ${testType} style. Exactly 4 choices. One correct. Step-by-step explanation.
+Respond ONLY with JSON: {"question":"...","choices":["A) ...","B) ...","C) ...","D) ..."],"correctIndex":0,"explanation":"...","conceptTaught":"...","difficulty":"${diffLabel}","skill":"${skill}"}`;
+  const text = await callClaude(prompt, 1000);
+  const cleaned = text.replace(/```json|```/g,"").trim();
+  // Extract JSON object in case there's surrounding text
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("No JSON in response");
+  return JSON.parse(match[0]);
+}
+
+async function generateDiagnosis({ skillMap, testType, targetScore, totalQuestions, accuracy }) {
+  const summary = Object.entries(skillMap).filter(([,v])=>v.attempts>0).map(([k,v])=>`${k}: ${v.correct}/${v.attempts}`).join(", ");
+  const prompt = `Expert ${testType} coach. Student: ${totalQuestions} questions, ${accuracy}% accuracy, target: ${targetScore}. Skills: ${summary}. Write 3-4 sentence coaching diagnosis: #1 strength, #1 weakness, one actionable tip. Direct and motivating. Plain text only.`;
+  return callClaude(prompt, 200);
+}
+
+async function generateStudyGuide({ skillMap, testType, targetScore, userName }) {
+  const weak = Object.entries(skillMap).filter(([,v])=>v.attempts>=1).sort((a,b)=>getSkillMastery(a[1])-getSkillMastery(b[1])).slice(0,6);
+  const strong = Object.entries(skillMap).filter(([,v])=>v.attempts>=2).sort((a,b)=>getSkillMastery(b[1])-getSkillMastery(a[1])).slice(0,3);
+  const prompt = `You are an expert ${testType} tutor generating a personalized study guide.
+Student: ${userName||"Student"} | Target: ${targetScore} | Test: ${testType}
+Weak skills: ${weak.map(([k,v])=>`${k} (${v.correct}/${v.attempts})`).join(", ")||"none yet"}
+Strong skills: ${strong.map(([k])=>k).join(", ")||"none yet"}
+
+Write a detailed, personalized study guide. Use === to mark section headers exactly like this:
+
+=== PERSONALIZED STUDY PLAN FOR ${(userName||"STUDENT").toUpperCase()} ===
+
+=== YOUR CURRENT SNAPSHOT ===
+2-3 sentences on where they stand.
+
+=== TOP PRIORITY SKILLS TO FIX ===
+For each of their 3 weakest skills: name, why it matters, 2 strategies to improve, one example problem type.
+
+=== YOUR WEEKLY SCHEDULE ===
+A day-by-day plan Mon-Sun based on their weak areas.
+
+=== TEST DAY STRATEGY ===
+3-4 tactical tips specific to their weak skills.
+
+=== YOU'VE GOT THIS ===
+2-3 sentences of specific, genuine encouragement based on their data.
+
+Plain text only, no markdown symbols. Be specific and practical.`;
+  return callClaude(prompt, 1500);
+}
+
+// ─── BACKGROUND ───────────────────────────────────────────────────────────────
+function Orbs() {
+  return (
+    <div style={{position:"fixed",inset:0,overflow:"hidden",pointerEvents:"none",zIndex:0}}>
+      {[{w:500,h:500,top:"-15%",left:"-10%",color:"#7c3aed",delay:"0s"},{w:400,h:400,top:"60%",left:"70%",color:"#a78bfa",delay:"3s"},{w:300,h:300,top:"40%",left:"30%",color:"#c084fc",delay:"6s"}].map((o,i)=>(
+        <div key={i} style={{position:"absolute",width:o.w,height:o.h,top:o.top,left:o.left,borderRadius:"50%",background:`radial-gradient(circle,${o.color}33 0%,transparent 70%)`,animation:"orbFloat 12s ease-in-out infinite",animationDelay:o.delay}}/>
+      ))}
+    </div>
+  );
+}
+function Particles() {
+  return (
+    <div style={{position:"fixed",inset:0,overflow:"hidden",pointerEvents:"none",zIndex:0}}>
+      {["∑","∫","π","√","∞","α","Δ","θ","λ","≠","∂","≈"].map((c,i)=>(
+        <div key={i} style={{position:"absolute",left:`${(i*8.3)%100}%`,top:`${(i*13.7)%100}%`,color:"#a78bfa22",fontSize:`${16+(i%3)*8}px`,fontFamily:"'Syne',sans-serif",fontWeight:900,animation:`particleDrift ${8+i%5}s ease-in-out infinite`,animationDelay:`${i*0.7}s`}}>{c}</div>
+      ))}
+    </div>
+  );
+}
+
+// ─── SHARED UI ────────────────────────────────────────────────────────────────
+function XPBar({ xp, rank }) {
+  const next = RANKS[RANKS.indexOf(rank)+1];
+  const pct = next?((xp-rank.min)/(next.min-rank.min))*100:100;
+  return (
+    <div style={{width:"100%"}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#94a3b8",marginBottom:4}}>
+        <span style={{color:rank.color,fontWeight:700}}>{rank.icon} {rank.name}</span>
+        <span>{xp.toLocaleString()} XP {next&&`→ ${next.min.toLocaleString()} for ${next.name}`}</span>
+      </div>
+      <div style={{background:"#1e293b",borderRadius:999,height:8,overflow:"hidden"}}>
+        <div style={{height:"100%",borderRadius:999,background:`linear-gradient(90deg,${rank.color},${rank.color}cc)`,width:`${Math.min(pct,100)}%`,transition:"width 0.8s cubic-bezier(0.34,1.56,0.64,1)",boxShadow:`0 0 8px ${rank.color}88`}}/>
+      </div>
+    </div>
+  );
+}
+function AuthInput({ label, type="text", value, onChange, placeholder, icon }) {
+  const [f,setF]=useState(false);
+  return (
+    <div style={{marginBottom:16}}>
+      <label style={{display:"block",fontSize:12,fontWeight:700,color:"#94a3b8",marginBottom:6,letterSpacing:0.5,textTransform:"uppercase"}}>{label}</label>
+      <div style={{display:"flex",alignItems:"center",background:f?"#1e1b4b":"#0f0f1a",border:`1px solid ${f?"#a78bfa":"#1e293b"}`,borderRadius:12,padding:"0 14px",transition:"all 0.2s",boxShadow:f?"0 0 0 3px #a78bfa22":"none"}}>
+        {icon&&<span style={{color:"#4b5563",marginRight:10,fontSize:16}}>{icon}</span>}
+        <input type={type} value={value} onChange={onChange} placeholder={placeholder} onFocus={()=>setF(true)} onBlur={()=>setF(false)} style={{flex:1,background:"none",border:"none",outline:"none",color:"#f1f5f9",fontSize:15,padding:"13px 0",fontFamily:"'DM Sans',sans-serif"}}/>
+      </div>
+    </div>
+  );
+}
+function GoogleButton({ onClick, loading }) {
+  return (
+    <button onClick={onClick} disabled={loading} style={{width:"100%",padding:"13px",background:"#fff",border:"1px solid #e2e8f0",borderRadius:14,color:"#1e293b",fontWeight:700,fontSize:15,cursor:loading?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 8px rgba(0,0,0,0.15)",opacity:loading?0.7:1}}>
+      {loading?<span style={{display:"inline-block",animation:"orbFloat 1s infinite"}}>⟳</span>:<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#4285F4" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z"/><path fill="#34A853" d="M6.3 14.7l7 5.1C15 16.1 19.1 13 24 13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 16.3 2 9.7 7.4 6.3 14.7z"/><path fill="#FBBC05" d="M24 46c5.5 0 10.5-1.9 14.3-5l-6.6-5.4C29.7 37.3 27 38 24 38c-6 0-11.1-4-12.9-9.5l-7 5.4C7.6 41.3 15.2 46 24 46z"/><path fill="#EA4335" d="M44.5 20H24v8.5h11.8c-1 3-3.3 5.5-6.4 7.1l6.6 5.4C40.5 37.5 45 31.5 45 24c0-1.3-.2-2.7-.5-4z"/></svg>}
+      {loading?"Signing in...":"Continue with Google"}
+    </button>
+  );
+}
+function Divider() {
+  return (
+    <div style={{position:"relative",textAlign:"center",margin:"18px 0"}}>
+      <div style={{height:1,background:"#1e293b",position:"absolute",top:"50%",width:"100%"}}/>
+      <span style={{background:"#060612",padding:"0 12px",color:"#334155",fontSize:13,position:"relative"}}>or</span>
+    </div>
+  );
+}
+function StepDots({ total, current }) {
+  return (
+    <div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:28}}>
+      {Array.from({length:total}).map((_,i)=>(
+        <div key={i} style={{height:6,borderRadius:999,width:i===current?24:6,background:i<=current?"#a78bfa":"#1e293b",transition:"all 0.4s cubic-bezier(0.34,1.56,0.64,1)",boxShadow:i===current?"0 0 10px #a78bfa88":"none"}}/>
+      ))}
+    </div>
+  );
+}
+function ChoiceCard({ icon, label, sublabel, selected, onClick }) {
+  return (
+    <button onClick={onClick} style={{background:selected?"linear-gradient(135deg,#1e1b4b,#2e1065)":"#0f0f1a",border:`1px solid ${selected?"#a78bfa":"#1e293b"}`,borderRadius:16,padding:"16px 14px",cursor:"pointer",textAlign:"center",transition:"all 0.25s",boxShadow:selected?"0 0 20px #a78bfa33":"none",transform:selected?"scale(1.03)":"scale(1)"}}>
+      <div style={{fontSize:26,marginBottom:6}}>{icon}</div>
+      <div style={{fontWeight:700,fontSize:13,color:selected?"#c4b5fd":"#94a3b8"}}>{label}</div>
+      {sublabel&&<div style={{fontSize:11,color:"#475569",marginTop:2}}>{sublabel}</div>}
+    </button>
+  );
+}
+
+// ─── AUTH SCREENS ─────────────────────────────────────────────────────────────
+function Landing({ onLogin, onSignup, onGoogle }) {
+  const [gl,setGl]=useState(false);
+  const hg=async()=>{setGl(true);try{await onGoogle();}catch(e){}setGl(false);};
+  return (
+    <div style={{animation:"slideUp 0.6s ease forwards",textAlign:"center"}}>
+      <div style={{width:72,height:72,borderRadius:20,margin:"0 auto 20px",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,boxShadow:"0 8px 40px #7c3aed66"}}>⚡</div>
+      <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:44,letterSpacing:-2,marginBottom:4,lineHeight:1}}>SAT<span style={{color:"#a78bfa"}}>xp</span></div>
+      <div style={{color:"#475569",fontSize:13,marginBottom:8,fontWeight:600}}>by @highschoolinvestor</div>
+      <div style={{color:"#94a3b8",fontSize:15,marginBottom:24,lineHeight:1.6}}>The only SAT/ACT app that<br/><span style={{color:"#a78bfa"}}>levels you up like a game.</span></div>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:24,textAlign:"left",background:"#0f0f1a",border:"1px solid #1e293b",borderRadius:16,padding:16}}>
+        {["🤖 Infinite AI questions — never the same twice","📝 Full mock exams — real SAT & ACT conditions","📈 Score predictor — projected score + college match","📋 Personalized study guide — download your plan","🧠 Spaced repetition — review what you forget"].map((f,i)=>(
+          <div key={i} style={{fontSize:13,color:"#94a3b8"}}>{f}</div>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:10,marginBottom:24}}>
+        {[{val:"∞",label:"Questions"},{val:"+210",label:"Avg SAT Gain"},{val:"AI",label:"Powered"}].map((s,i)=>(
+          <div key={i} style={{background:"#0f0f1a",border:"1px solid #1e293b",borderRadius:14,padding:"12px 16px",flex:1}}>
+            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:22,color:"#a78bfa"}}>{s.val}</div>
+            <div style={{fontSize:11,color:"#475569",marginTop:2}}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+      <button onClick={onSignup} style={{width:"100%",padding:"15px",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:14,color:"#fff",fontWeight:900,fontSize:17,cursor:"pointer",fontFamily:"'Syne',sans-serif",boxShadow:"0 8px 32px #7c3aed55",marginBottom:10}}>⚡ Start Earning XP — Free</button>
+      <GoogleButton onClick={hg} loading={gl}/>
+      <button onClick={onLogin} style={{width:"100%",padding:"13px",background:"none",border:"1px solid #1e293b",borderRadius:14,color:"#64748b",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:10}}>Already have an account → Log in</button>
+    </div>
+  );
+}
+function Login({ onBack, onLogin, onGoogle, onGoSignup }) {
+  const [form,setForm]=useState({email:"",password:""});
+  const [gl,setGl]=useState(false);
+  const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
+  const hg=async()=>{setGl(true);try{await onGoogle();}catch(e){}setGl(false);};
+  return (
+    <div style={{animation:"slideUp 0.5s ease forwards"}}>
+      <button onClick={onBack} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:13,fontWeight:600,marginBottom:28,display:"flex",alignItems:"center",gap:6,padding:0}}>← Back</button>
+      <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:30,marginBottom:6}}>Welcome back 👋</div>
+      <div style={{color:"#475569",fontSize:14,marginBottom:28}}>Log in to continue your streak</div>
+      <GoogleButton onClick={hg} loading={gl}/><Divider/>
+      <AuthInput label="Email" type="email" value={form.email} onChange={set("email")} placeholder="you@school.edu" icon="✉️"/>
+      <AuthInput label="Password" type="password" value={form.password} onChange={set("password")} placeholder="••••••••" icon="🔒"/>
+      <button onClick={onLogin} style={{width:"100%",padding:"14px",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:14,color:"#fff",fontWeight:900,fontSize:16,cursor:"pointer",fontFamily:"'Syne',sans-serif",boxShadow:"0 6px 24px #7c3aed44"}}>Log In →</button>
+      <div style={{textAlign:"center",marginTop:20,color:"#475569",fontSize:13}}>No account? <span onClick={onGoSignup} style={{color:"#a78bfa",fontWeight:700,cursor:"pointer"}}>Sign up free</span></div>
+    </div>
+  );
+}
+function Signup({ onBack, onNext, onGoogle, onGoLogin }) {
+  const [form,setForm]=useState({name:"",email:"",password:""});
+  const [gl,setGl]=useState(false);
+  const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
+  const hg=async()=>{setGl(true);try{await onGoogle();}catch(e){}setGl(false);};
+  return (
+    <div style={{animation:"slideUp 0.5s ease forwards"}}>
+      <button onClick={onBack} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:13,fontWeight:600,marginBottom:28,display:"flex",alignItems:"center",gap:6,padding:0}}>← Back</button>
+      <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:30,marginBottom:6}}>Join SATxp ⚡</div>
+      <div style={{color:"#475569",fontSize:14,marginBottom:24}}>Free forever · Powered by AI</div>
+      <GoogleButton onClick={hg} loading={gl}/><Divider/>
+      <AuthInput label="Full Name" value={form.name} onChange={set("name")} placeholder="Your name" icon="👤"/>
+      <AuthInput label="Email" type="email" value={form.email} onChange={set("email")} placeholder="you@school.edu" icon="✉️"/>
+      <AuthInput label="Password" type="password" value={form.password} onChange={set("password")} placeholder="Create a password" icon="🔒"/>
+      <button onClick={()=>onNext(form.name||"Student")} style={{width:"100%",padding:"14px",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:14,color:"#fff",fontWeight:900,fontSize:16,cursor:"pointer",fontFamily:"'Syne',sans-serif",boxShadow:"0 6px 24px #7c3aed44",marginTop:4}}>Create Account →</button>
+      <div style={{textAlign:"center",marginTop:16,color:"#475569",fontSize:13}}>Have an account? <span onClick={onGoLogin} style={{color:"#a78bfa",fontWeight:700,cursor:"pointer"}}>Log in</span></div>
+    </div>
+  );
+}
+function Onboarding({ onComplete, userName }) {
+  // step -1 = welcome splash, 0..N = questions, last+1 = summary
+  const [step, setStep] = useState(-1);
+  const [profile, setProfile] = useState({
+    testType:"", gradeLevel:"", targetScore:"", studyTime:"",
+    weakAreas:[], learningStyle:"", motivation:"", testDate:"", pace:""
+  });
+  const setP = (k,v) => setProfile(p=>({...p,[k]:v}));
+  const toggleWeak = a => setProfile(p=>({
+    ...p, weakAreas: p.weakAreas.includes(a) ? p.weakAreas.filter(x=>x!==a) : [...p.weakAreas,a]
+  }));
+
+  const steps = [
+    {
+      id:"testType", icon:"📋", title:"Which test are you taking?",
+      sub:"SATxp will generate questions perfectly matched to your exam.",
+      cols:3, key:"testType",
+      choices:[
+        {icon:"📐",label:"SAT",sublabel:"1600 scale",desc:"Math + Reading/Writing"},
+        {icon:"📝",label:"ACT",sublabel:"36 scale",desc:"English, Math, Reading, Science"},
+        {icon:"🎯",label:"Both",sublabel:"Maximize options",desc:"Prep for either exam"},
+      ]
+    },
+    {
+      id:"gradeLevel", icon:"🏫", title:"What grade are you in?",
+      sub:"We'll calibrate pacing and complexity to your timeline.",
+      cols:3, key:"gradeLevel",
+      choices:[
+        {icon:"🌱",label:"9th Grade",sublabel:"Early prep"},
+        {icon:"📚",label:"10th Grade",sublabel:"Building base"},
+        {icon:"⚡",label:"11th Grade",sublabel:"Prime time"},
+        {icon:"🎓",label:"12th Grade",sublabel:"Final push"},
+        {icon:"🔄",label:"Retaking",sublabel:"Improve score"},
+        {icon:"👩‍🏫",label:"Parent/Tutor",sublabel:"Helping someone"},
+      ]
+    },
+    {
+      id:"targetScore", icon:"🏆", title:"What's your target score?",
+      sub:"AI will ramp difficulty up to get you exactly there.",
+      cols:2, key:"targetScore",
+      choices: profile.testType==="ACT"
+        ? [{icon:"🌟",label:"26-28",sublabel:"State university",desc:"Solid foundation"},
+           {icon:"✨",label:"29-31",sublabel:"Strong applicant",desc:"Competitive range"},
+           {icon:"🔥",label:"32-34",sublabel:"Top 10%",desc:"Elite territory"},
+           {icon:"👑",label:"35-36",sublabel:"Near perfect",desc:"Top schools"}]
+        : [{icon:"🌟",label:"1200-1350",sublabel:"State university",desc:"Good foundation"},
+           {icon:"✨",label:"1350-1450",sublabel:"Strong applicant",desc:"Competitive range"},
+           {icon:"🔥",label:"1450-1530",sublabel:"Top university",desc:"Elite territory"},
+           {icon:"👑",label:"1530-1600",sublabel:"Ivy / T-20",desc:"Near perfect"}]
+    },
+    {
+      id:"testDate", icon:"📅", title:"When's your test?",
+      sub:"We'll set the urgency of your study plan accordingly.",
+      cols:2, key:"testDate",
+      choices:[
+        {icon:"🚨",label:"< 1 month",sublabel:"Crunch time",desc:"Intense focus mode"},
+        {icon:"⚡",label:"1–3 months",sublabel:"Prime window",desc:"Structured sprint"},
+        {icon:"📆",label:"3–6 months",sublabel:"Good runway",desc:"Steady build"},
+        {icon:"🌱",label:"6+ months",sublabel:"Early bird",desc:"Long game strategy"},
+      ]
+    },
+    {
+      id:"learningStyle", icon:"🧠", title:"How do you learn best?",
+      sub:"This shapes how AI explains concepts and paces your sessions.",
+      cols:2, key:"learningStyle",
+      choices:[
+        {icon:"🔁",label:"Repetition",sublabel:"Practice makes perfect",desc:"Drill until it clicks"},
+        {icon:"💡",label:"Understand Why",sublabel:"Concept-first",desc:"Deep explanations"},
+        {icon:"🏃",label:"Fast & Focused",sublabel:"High volume",desc:"Many questions quickly"},
+        {icon:"🎯",label:"Weak Spots Only",sublabel:"Targeted",desc:"Fix what's broken first"},
+      ]
+    },
+    {
+      id:"studyTime", icon:"⏱️", title:"How much time per week?",
+      sub:"Be honest — a realistic plan beats an abandoned one.",
+      cols:2, key:"studyTime",
+      choices:[
+        {icon:"🌙",label:"1–2 hrs/wk",sublabel:"Light",desc:"Quality over quantity"},
+        {icon:"📅",label:"3–5 hrs/wk",sublabel:"Moderate",desc:"Solid improvement pace"},
+        {icon:"⚡",label:"6–10 hrs/wk",sublabel:"Serious",desc:"Strong gains expected"},
+        {icon:"🔥",label:"10+ hrs/wk",sublabel:"Full send",desc:"Max score trajectory"},
+      ]
+    },
+    {
+      id:"motivation", icon:"💬", title:"Why are you doing this?",
+      sub:"Knowing your why keeps you going on hard days.",
+      cols:2, key:"motivation",
+      choices:[
+        {icon:"🏛️",label:"Dream School",sublabel:"Specific college",desc:"That one school matters"},
+        {icon:"💰",label:"Scholarships",sublabel:"Financial goals",desc:"Score = money saved"},
+        {icon:"👨‍👩‍👧",label:"Family Pride",sublabel:"For the people I love",desc:"Making them proud"},
+        {icon:"🏆",label:"Personal Best",sublabel:"Beat my own record",desc:"Competing with myself"},
+      ]
+    },
+    {
+      id:"weakAreas", icon:"🎯", title:"Where do you struggle most?",
+      sub:"Pick everything that applies — AI attacks these first.",
+      cols:2, key:"weakAreas", multi:true,
+      choices:[
+        {icon:"➕",label:"Algebra",sublabel:"Equations & expressions"},
+        {icon:"📐",label:"Geometry",sublabel:"Shapes & proofs"},
+        {icon:"📊",label:"Data & Stats",sublabel:"Charts & probability"},
+        {icon:"🧮",label:"Advanced Math",sublabel:"Functions & trig"},
+        {icon:"📖",label:"Reading Comp",sublabel:"Passages & inference"},
+        {icon:"✍️",label:"Grammar",sublabel:"Punctuation & style"},
+        {icon:"🔬",label:"Science",sublabel:"ACT data & research"},
+        {icon:"📝",label:"Writing",sublabel:"Rhetorical skills"},
+      ]
+    },
+  ];
+
+  const TOTAL = steps.length;
+  const s = steps[step] || {};
+  const canNext = step < 0 ? true : (s.multi ? profile.weakAreas.length > 0 : !!profile[s.key]);
+  const isSummary = step === TOTAL;
+
+  // Summary helpers
+  const getMotivationMsg = () => {
+    const m = {
+      "Dream School":"locked in on your dream school 🏛️",
+      "Scholarships":"chasing scholarships 💰",
+      "Family Pride":"doing this for the people who matter 👨‍👩‍👧",
+      "Personal Best":"competing with yourself 🏆",
+    };
+    return m[profile.motivation] || "ready to level up";
+  };
+  const getPaceLabel = () => {
+    if (profile.testDate === "< 1 month") return "🚨 Crunch Mode — intense daily sessions";
+    if (profile.testDate === "1–3 months") return "⚡ Sprint — structured 3-4x/week";
+    if (profile.testDate === "3–6 months") return "📆 Steady Build — 2-3x/week";
+    return "🌱 Long Game — 2x/week, deep focus";
+  };
+  const getFirstFocus = () => {
+    if (profile.weakAreas.length > 0) return profile.weakAreas[0];
+    if (profile.testType === "ACT") return "ACT English";
+    return "SAT Math";
+  };
+
+  // Welcome splash
+  if (step === -1) return (
+    <div style={{animation:"slideUp 0.5s ease forwards",textAlign:"center"}}>
+      <div style={{marginBottom:32,marginTop:8}}>
+        <div style={{fontSize:64,marginBottom:16,lineHeight:1}}>👋</div>
+        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:32,marginBottom:10,lineHeight:1.1}}>
+          Hey{userName ? `, ${userName.split(" ")[0]}` : ""}!<br/>
+          <span style={{background:"linear-gradient(135deg,#a78bfa,#c084fc)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Let's build your plan.</span>
+        </div>
+        <div style={{color:"#64748b",fontSize:15,lineHeight:1.7,maxWidth:340,margin:"0 auto"}}>
+          Answer 8 quick questions and SATxp will create a fully personalized AI study experience — just for you.
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:28,textAlign:"left"}}>
+        {[
+          {icon:"🤖",title:"AI-matched questions",sub:"Calibrated to your exact level"},
+          {icon:"📈",title:"Adaptive difficulty",sub:"Gets harder as you improve"},
+          {icon:"🎯",title:"Focused on your gaps",sub:"Attacks your weak areas first"},
+          {icon:"📋",title:"Personalized study plan",sub:"Built around your schedule"},
+        ].map((f,i)=>(
+          <div key={i} style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:14,padding:"14px 12px"}}>
+            <div style={{fontSize:22,marginBottom:6}}>{f.icon}</div>
+            <div style={{fontWeight:700,fontSize:13,color:"#f1f5f9",marginBottom:2}}>{f.title}</div>
+            <div style={{fontSize:11,color:"#475569"}}>{f.sub}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{color:"#475569",fontSize:12,marginBottom:20}}>⏱️ Takes about 60 seconds · 8 questions total</div>
+      <button onClick={()=>setStep(0)} style={{width:"100%",padding:"16px",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:14,color:"#fff",fontWeight:900,fontSize:18,cursor:"pointer",fontFamily:"'Syne',sans-serif",boxShadow:"0 8px 32px #7c3aed55"}}>
+        Let's Go ⚡
+      </button>
+    </div>
+  );
+
+  // Summary screen
+  if (isSummary) return (
+    <div style={{animation:"slideUp 0.5s ease forwards"}}>
+      <div style={{textAlign:"center",marginBottom:28}}>
+        <div style={{fontSize:56,marginBottom:12}}>🎉</div>
+        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:28,marginBottom:8}}>
+          Your plan is <span style={{background:"linear-gradient(135deg,#a78bfa,#c084fc)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>ready.</span>
+        </div>
+        <div style={{color:"#64748b",fontSize:14}}>Here's what SATxp will do for you:</div>
+      </div>
+
+      {/* Profile card */}
+      <div style={{background:"linear-gradient(135deg,#1e1b4b,#0f172a)",border:"1px solid #a78bfa44",borderRadius:20,padding:22,marginBottom:16}}>
+        <div style={{fontWeight:800,fontSize:13,color:"#a78bfa",marginBottom:14,letterSpacing:0.5,textTransform:"uppercase"}}>Your Profile</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          {[
+            {label:"Test",val:profile.testType||"SAT",icon:"📋"},
+            {label:"Grade",val:profile.gradeLevel||"11th Grade",icon:"🏫"},
+            {label:"Target",val:profile.targetScore||(profile.testType==="ACT"?"32-34":"1450-1530"),icon:"🏆"},
+            {label:"Test Date",val:profile.testDate||"1–3 months",icon:"📅"},
+            {label:"Study Time",val:profile.studyTime||"3–5 hrs/wk",icon:"⏱️"},
+            {label:"Learning",val:profile.learningStyle||"Targeted",icon:"🧠"},
+          ].map((item,i)=>(
+            <div key={i} style={{background:"#0f172a33",borderRadius:12,padding:"10px 12px"}}>
+              <div style={{fontSize:11,color:"#475569",marginBottom:2}}>{item.icon} {item.label}</div>
+              <div style={{fontWeight:700,fontSize:13,color:"#f1f5f9"}}>{item.val}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* AI plan summary */}
+      <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:20,marginBottom:16}}>
+        <div style={{fontWeight:800,fontSize:13,color:"#94a3b8",marginBottom:14,letterSpacing:0.5,textTransform:"uppercase"}}>Your AI Game Plan</div>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+            <div style={{width:36,height:36,borderRadius:10,background:"#7c3aed22",border:"1px solid #7c3aed44",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>🎯</div>
+            <div><div style={{fontWeight:700,fontSize:13,color:"#f1f5f9",marginBottom:2}}>First focus: {getFirstFocus()}</div><div style={{fontSize:12,color:"#64748b"}}>AI will drill your biggest weak spot first to get fast early gains.</div></div>
+          </div>
+          <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+            <div style={{width:36,height:36,borderRadius:10,background:"#22c55e22",border:"1px solid #22c55e44",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>📆</div>
+            <div><div style={{fontWeight:700,fontSize:13,color:"#f1f5f9",marginBottom:2}}>{getPaceLabel()}</div><div style={{fontSize:12,color:"#64748b"}}>Paced for your {profile.testDate||"upcoming"} test date.</div></div>
+          </div>
+          <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+            <div style={{width:36,height:36,borderRadius:10,background:"#a78bfa22",border:"1px solid #a78bfa44",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>💬</div>
+            <div><div style={{fontWeight:700,fontSize:13,color:"#f1f5f9",marginBottom:2}}>You're {getMotivationMsg()}</div><div style={{fontSize:12,color:"#64748b"}}>We'll remind you of your why when things get hard.</div></div>
+          </div>
+          {profile.weakAreas.length > 0 && (
+            <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+              <div style={{width:36,height:36,borderRadius:10,background:"#f59e0b22",border:"1px solid #f59e0b44",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>🧩</div>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,color:"#f1f5f9",marginBottom:4}}>Targeting {profile.weakAreas.length} weak area{profile.weakAreas.length>1?"s":""}</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {profile.weakAreas.map((a,i)=><span key={i} style={{background:"#1e293b",border:"1px solid #334155",borderRadius:999,padding:"2px 10px",fontSize:11,color:"#94a3b8"}}>{a}</span>)}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <button onClick={()=>onComplete(profile)} style={{width:"100%",padding:"16px",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:14,color:"#fff",fontWeight:900,fontSize:18,cursor:"pointer",fontFamily:"'Syne',sans-serif",boxShadow:"0 8px 32px #7c3aed55",marginBottom:10}}>
+        Start Earning XP ⚡
+      </button>
+      <button onClick={()=>setStep(TOTAL-1)} style={{width:"100%",padding:"12px",background:"none",border:"1px solid #1e293b",borderRadius:14,color:"#475569",fontWeight:700,fontSize:13,cursor:"pointer"}}>← Go back and edit</button>
+    </div>
+  );
+
+  // Question steps
+  return (
+    <div style={{animation:"slideUp 0.35s ease forwards"}}>
+      {/* Progress */}
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
+        <div style={{flex:1,background:"#1e293b",borderRadius:999,height:6,overflow:"hidden"}}>
+          <div style={{width:`${((step+1)/TOTAL)*100}%`,height:"100%",background:"linear-gradient(90deg,#7c3aed,#a78bfa)",borderRadius:999,transition:"width 0.4s cubic-bezier(0.34,1.56,0.64,1)"}}/>
+        </div>
+        <div style={{fontSize:12,color:"#475569",fontWeight:700,whiteSpace:"nowrap"}}>{step+1} / {TOTAL}</div>
+      </div>
+
+      {/* Step icon + title */}
+      <div style={{marginBottom:22}}>
+        <div style={{fontSize:36,marginBottom:10}}>{s.icon}</div>
+        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:24,marginBottom:6,lineHeight:1.2}}>{s.title}</div>
+        <div style={{color:"#475569",fontSize:14,lineHeight:1.6}}>{s.sub}</div>
+      </div>
+
+      {/* Choices */}
+      <div style={{display:"grid",gridTemplateColumns:`repeat(${s.cols||2},1fr)`,gap:10,marginBottom:24}}>
+        {(s.choices||[]).map(c=>{
+          const sel = s.multi ? profile.weakAreas.includes(c.label) : profile[s.key]===c.label;
+          return (
+            <button key={c.label} onClick={()=>s.multi?toggleWeak(c.label):setP(s.key,c.label)}
+              style={{background:sel?"linear-gradient(135deg,#1e1b4b,#2e1065)":"#0f0f1a",border:`1px solid ${sel?"#a78bfa":"#1e293b"}`,borderRadius:16,padding:"16px 14px",cursor:"pointer",textAlign:"left",transition:"all 0.2s",boxShadow:sel?"0 0 20px #a78bfa22":"none",transform:sel?"scale(1.02)":"scale(1)",position:"relative"}}>
+              {sel&&<div style={{position:"absolute",top:8,right:10,width:18,height:18,borderRadius:"50%",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff",fontWeight:900}}>✓</div>}
+              <div style={{fontSize:24,marginBottom:6}}>{c.icon}</div>
+              <div style={{fontWeight:700,fontSize:13,color:sel?"#c4b5fd":"#94a3b8",marginBottom:2}}>{c.label}</div>
+              {c.sublabel&&<div style={{fontSize:11,color:sel?"#7c3aed":"#334155",fontWeight:600}}>{c.sublabel}</div>}
+              {c.desc&&<div style={{fontSize:11,color:"#475569",marginTop:3}}>{c.desc}</div>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Nav buttons */}
+      <div style={{display:"flex",gap:10}}>
+        <button onClick={()=>setStep(s=>s-1)} style={{flex:"0 0 auto",padding:"14px 18px",background:"#0f0f1a",border:"1px solid #1e293b",borderRadius:14,color:"#94a3b8",fontWeight:700,cursor:"pointer",fontSize:16}}>←</button>
+        <button disabled={!canNext} onClick={()=>canNext&&setStep(s=>s+1)} style={{flex:1,padding:"14px",background:canNext?"linear-gradient(135deg,#7c3aed,#a78bfa)":"#1e293b",border:"none",borderRadius:14,color:canNext?"#fff":"#334155",fontWeight:900,fontSize:16,cursor:canNext?"pointer":"not-allowed",fontFamily:"'Syne',sans-serif",transition:"all 0.2s"}}>
+          {step===TOTAL-1?"See My Plan →":"Continue →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── SUBJECT PICKER ───────────────────────────────────────────────────────────
+function SubjectPicker({ profile, skillMap, dueCount, onSelect, onStartAdaptive, onStartMock, isPremium, setTab }) {
+  const testType = profile?.testType||"SAT";
+  const avail = testType==="Both" ? SUBJECTS : SUBJECTS.filter(s=>s.id.startsWith(testType==="ACT"?"ACT":"SAT"));
+  const mockTypes = testType==="Both"?["SAT","ACT"]:[testType==="ACT"?"ACT":"SAT"];
+  return (
+    <div style={{animation:"slideUp 0.4s ease forwards"}}>
+      <div style={{marginBottom:20}}>
+        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:24,marginBottom:4}}>What are we studying? 🎯</div>
+        <div style={{color:"#64748b",fontSize:14}}>Pick a subject, take a mock exam, or let AI choose.</div>
+      </div>
+      {dueCount>0&&(
+        <div style={{background:"linear-gradient(135deg,#1e1b4b,#2e1065)",border:"1px solid #a78bfa44",borderRadius:16,padding:"14px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}} onClick={()=>onSelect("review")}>
+          <span style={{fontSize:24}}>🔁</span>
+          <div style={{flex:1}}><div style={{fontWeight:700,fontSize:14,color:"#c4b5fd"}}>{dueCount} cards due for review</div><div style={{fontSize:12,color:"#94a3b8"}}>Tap to review missed questions first</div></div>
+          <span style={{color:"#a78bfa",fontSize:18}}>→</span>
+        </div>
+      )}
+      <div style={{marginBottom:16}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#475569",marginBottom:10,letterSpacing:0.5,textTransform:"uppercase"}}>📝 Full Mock Exam</div>
+        <div style={{display:"flex",gap:10}}>
+          {mockTypes.map(t=>{
+            const cfg=MOCK_EXAM_CONFIGS[t];
+            const total=cfg.reduce((a,s)=>a+s.count,0);
+            const mins=cfg.reduce((a,s)=>a+s.timeMinutes,0);
+            return (
+              <button key={t} onClick={()=>isPremium?onStartMock(t):setTab("premium")} style={{flex:1,background:"linear-gradient(135deg,#1e293b,#0f172a)",border:"1px solid #334155",borderRadius:16,padding:"16px 14px",cursor:"pointer",textAlign:"left",position:"relative",overflow:"hidden"}}>
+                {!isPremium&&<div style={{position:"absolute",top:8,right:8,background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:6,padding:"2px 7px",fontSize:10,color:"#a78bfa",fontWeight:700}}>🔒 PRO</div>}
+                <div style={{fontSize:24,marginBottom:6}}>{t==="SAT"?"📐":"📝"}</div>
+                <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:15,color:"#f1f5f9",marginBottom:2}}>{t} Mock</div>
+                <div style={{fontSize:11,color:"#64748b"}}>{total} questions · {mins} min</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <button onClick={onStartAdaptive} style={{width:"100%",background:"linear-gradient(135deg,#1e1b4b,#2e1065)",border:"1px solid #a78bfa55",borderRadius:18,padding:"18px 20px",marginBottom:16,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:14}}>
+        <div style={{width:44,height:44,borderRadius:12,background:"linear-gradient(135deg,#7c3aed,#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>🤖</div>
+        <div style={{flex:1}}><div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:16,color:"#c4b5fd",marginBottom:2}}>AI Adaptive Mix</div><div style={{fontSize:13,color:"#64748b"}}>Let AI pick your weakest skills</div></div>
+        <div style={{background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:8,padding:"3px 10px",fontSize:11,color:"#a78bfa",fontWeight:700,flexShrink:0}}>SMART</div>
+      </button>
+      <div style={{fontWeight:700,fontSize:13,color:"#475569",marginBottom:10,letterSpacing:0.5,textTransform:"uppercase"}}>Or pick a subject</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        {avail.map(sub=>{
+          const subSkills=Object.entries(skillMap).filter(([k])=>(SKILLS[sub.id]||[]).includes(k));
+          const attempted=subSkills.filter(([,v])=>v.attempts>0).length;
+          const mastery=attempted>0?Math.round(subSkills.reduce((a,[,v])=>a+getSkillMastery(v),0)/attempted):null;
+          return (
+            <button key={sub.id} onClick={()=>onSelect(sub.id)} style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:18,padding:"18px 16px",cursor:"pointer",textAlign:"left",transition:"all 0.2s",position:"relative",overflow:"hidden"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=sub.color+"88";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#1e293b";}}>
+              <div style={{position:"absolute",top:-20,right:-20,width:80,height:80,borderRadius:"50%",background:`radial-gradient(circle,${sub.color}22,transparent 70%)`}}/>
+              <div style={{fontSize:28,marginBottom:8}}>{sub.icon}</div>
+              <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:14,color:"#f1f5f9",marginBottom:3}}>{sub.label}</div>
+              <div style={{fontSize:11,color:"#475569",marginBottom:10}}>{sub.desc}</div>
+              {mastery!==null?(
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{flex:1,background:"#1e293b",borderRadius:999,height:4}}><div style={{width:`${mastery}%`,height:"100%",borderRadius:999,background:sub.color,boxShadow:`0 0 4px ${sub.color}88`}}/></div>
+                  <span style={{fontSize:11,color:sub.color,fontWeight:700}}>{mastery}%</span>
+                </div>
+              ):<div style={{fontSize:11,color:"#334155"}}>Not started yet</div>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── MOCK EXAM ────────────────────────────────────────────────────────────────
+function MockExam({ testType, profile, onComplete, onAbort }) {
+  const cfg = MOCK_EXAM_CONFIGS[testType];
+  const totalQ = cfg.reduce((a,s)=>a+s.count,0);
+  const totalMins = cfg.reduce((a,s)=>a+s.timeMinutes,0);
+  const [phase, setPhase] = useState("intro");
+  const [questions, setQuestions] = useState([]);
+  const [idx, setIdx] = useState(0);
+  const [answers, setAnswers] = useState([]);
+  const [sel, setSel] = useState(null);
+  const [revealed, setRevealed] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(totalMins*60);
+  const [genPct, setGenPct] = useState(0);
+  const timerRef = useRef(null);
+
+  const buildQueue = () => {
+    const q=[];
+    cfg.forEach(sec=>{
+      const skills=SKILLS[sec.subject]||[];
+      for(let i=0;i<sec.count;i++) q.push({subject:sec.subject,skill:skills[i%skills.length]});
+    });
+    return q;
+  };
+
+  const startExam = async () => {
+    setPhase("loading");
+    const queue = buildQueue();
+    const gen = [];
+    for(let i=0;i<queue.length;i++){
+      setGenPct(Math.round((i/queue.length)*100));
+      try {
+        const q = await generateQuestion({subject:queue[i].subject,skill:queue[i].skill,difficulty:2,testType,wrongSkills:[],recentWrong:[]});
+        gen.push({...q,subject:queue[i].subject});
+      } catch(e) {
+        gen.push({question:`[${queue[i].skill}] — Error generating. Try next.`,choices:["A) Skip","B) Skip","C) Skip","D) Skip"],correctIndex:0,explanation:"Generation error.",skill:queue[i].skill,subject:queue[i].subject});
+      }
+    }
+    setQuestions(gen); setAnswers(new Array(gen.length).fill(null));
+    setPhase("active"); setTimeLeft(totalMins*60);
+  };
+
+  useEffect(()=>{
+    if(phase!=="active") return;
+    timerRef.current = setInterval(()=>{
+      setTimeLeft(t=>{ if(t<=1){clearInterval(timerRef.current);setPhase("results");return 0;} return t-1; });
+    },1000);
+    return()=>clearInterval(timerRef.current);
+  },[phase]);
+
+  const fmt = s=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+
+  const calcSectionResults = () => {
+    const res={};
+    cfg.forEach(sec=>{
+      const idxs=questions.map((q,i)=>q.subject===sec.subject?i:-1).filter(i=>i>=0);
+      res[sec.subject]={correct:idxs.filter(i=>answers[i]===questions[i]?.correctIndex).length,total:sec.count};
+    });
+    return res;
+  };
+
+  const calcScores = () => {
+    const sr=calcSectionResults(); const scores={};
+    cfg.forEach(sec=>{
+      const {correct,total}=sr[sec.subject];
+      scores[sec.subject] = testType==="SAT"
+        ? Math.round((200+(correct/total)*600)/10)*10
+        : Math.max(1,Math.min(36,Math.round(1+(correct/total)*35)));
+    });
+    const vals=Object.values(scores);
+    const composite = testType==="SAT" ? vals.reduce((a,b)=>a+b,0) : Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+    return {scores,composite};
+  };
+
+  if(phase==="intro") return (
+    <div style={{animation:"slideUp 0.4s ease forwards"}}>
+      <button onClick={onAbort} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:13,fontWeight:600,marginBottom:24,display:"flex",alignItems:"center",gap:6,padding:0}}>← Back</button>
+      <div style={{textAlign:"center",marginBottom:24}}>
+        <div style={{fontSize:48,marginBottom:12}}>{testType==="SAT"?"📐":"📝"}</div>
+        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:28,marginBottom:6}}>{testType} Mock Exam</div>
+        <div style={{color:"#94a3b8",fontSize:15}}>Real test conditions. AI-generated questions.</div>
+      </div>
+      <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:20,marginBottom:16}}>
+        {cfg.map((sec,i)=>(
+          <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:i<cfg.length-1?"1px solid #1e293b":"none"}}>
+            <div><div style={{fontWeight:700,fontSize:14}}>{sec.subject}</div><div style={{fontSize:12,color:"#64748b"}}>{sec.count} questions</div></div>
+            <div style={{color:"#a78bfa",fontWeight:700,fontSize:13}}>{sec.timeMinutes} min</div>
+          </div>
+        ))}
+        <div style={{display:"flex",justifyContent:"space-between",paddingTop:12,marginTop:4}}>
+          <div style={{fontWeight:800,fontSize:15}}>Total</div>
+          <div style={{fontWeight:800,fontSize:15,color:"#a78bfa"}}>{totalQ} questions · {totalMins} min</div>
+        </div>
+      </div>
+      <div style={{background:"#1e1b4b22",border:"1px solid #a78bfa22",borderRadius:12,padding:12,marginBottom:20,fontSize:13,color:"#94a3b8",lineHeight:1.7}}>
+        ⚠️ Timer runs continuously once started. All questions are AI-generated to match real {testType} style. This may take ~2 minutes to generate.
+      </div>
+      <button onClick={startExam} style={{width:"100%",padding:"15px",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:14,color:"#fff",fontWeight:900,fontSize:17,cursor:"pointer",fontFamily:"'Syne',sans-serif",boxShadow:"0 8px 32px #7c3aed44"}}>🚀 Start Exam</button>
+    </div>
+  );
+
+  if(phase==="loading") return (
+    <div style={{textAlign:"center",padding:"60px 20px"}}>
+      <div style={{fontSize:48,marginBottom:16,animation:"orbFloat 2s ease-in-out infinite"}}>🤖</div>
+      <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:22,marginBottom:8}}>Building your exam...</div>
+      <div style={{color:"#64748b",fontSize:14,marginBottom:24}}>Generating {totalQ} unique {testType} questions</div>
+      <div style={{background:"#1e293b",borderRadius:999,height:10,margin:"0 auto",maxWidth:320}}>
+        <div style={{width:`${genPct}%`,height:"100%",borderRadius:999,background:"linear-gradient(90deg,#7c3aed,#a78bfa)",transition:"width 0.4s ease"}}/>
+      </div>
+      <div style={{marginTop:10,color:"#a78bfa",fontWeight:700,fontSize:16}}>{genPct}%</div>
+    </div>
+  );
+
+  if(phase==="active"&&questions.length>0){
+    const q=questions[idx];
+    const pct=((idx+1)/questions.length)*100;
+    const urgent=timeLeft<120;
+    return (
+      <div>
+        <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div><div style={{fontWeight:800,fontSize:14}}>{testType} Mock Exam</div><div style={{fontSize:12,color:"#64748b"}}>{idx+1} / {questions.length}</div></div>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:22,color:urgent?"#ef4444":"#a78bfa"}}>{fmt(timeLeft)}</div>
+            <div style={{fontSize:11,color:"#475569"}}>remaining</div>
+          </div>
+          <button onClick={()=>setPhase("results")} style={{background:"#1e293b",border:"1px solid #334155",borderRadius:10,padding:"6px 12px",color:"#64748b",fontSize:12,fontWeight:700,cursor:"pointer"}}>Finish Early</button>
+        </div>
+        <div style={{background:"#1e293b",borderRadius:999,height:4,marginBottom:16}}>
+          <div style={{width:`${pct}%`,height:"100%",borderRadius:999,background:"linear-gradient(90deg,#7c3aed,#a78bfa)",transition:"width 0.3s"}}/>
+        </div>
+        <div style={{background:"linear-gradient(135deg,#1e293b,#0f172a)",border:"1px solid #334155",borderRadius:20,padding:24}}>
+          <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+            <span style={{background:"#0f172a",border:"1px solid #334155",borderRadius:999,padding:"3px 12px",fontSize:12,color:"#a78bfa",fontWeight:700}}>{q.subject}</span>
+            <span style={{background:"#1e1b4b",border:"1px solid #a78bfa44",borderRadius:999,padding:"3px 12px",fontSize:12,color:"#c4b5fd",fontWeight:600}}>{q.skill}</span>
+          </div>
+          <div style={{fontFamily:"'Syne',sans-serif",fontSize:16,fontWeight:600,color:"#f1f5f9",lineHeight:1.7,marginBottom:20}}>{q.question}</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {q.choices.map((opt,i)=>{
+              let bg="#0f172a",border="#334155",color="#cbd5e1";
+              if(revealed){if(i===q.correctIndex){bg="#052e16";border="#16a34a";color="#4ade80";}else if(i===sel&&sel!==q.correctIndex){bg="#3b0a0a";border="#c084fc";color="#fca5a5";}}
+              else if(i===sel){bg="#1e1b4b";border="#a78bfa";color="#c4b5fd";}
+              return (
+                <button key={i} onClick={()=>!revealed&&setSel(i)} style={{background:bg,border:`1px solid ${border}`,borderRadius:12,padding:"12px 16px",textAlign:"left",color,cursor:revealed?"default":"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,transition:"all 0.2s",display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{width:24,height:24,borderRadius:"50%",background:"#1e293b",border:`1px solid ${border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0,color}}>{String.fromCharCode(65+i)}</span>
+                  {opt}
+                  {revealed&&i===q.correctIndex&&<span style={{marginLeft:"auto"}}>✓</span>}
+                  {revealed&&i===sel&&sel!==q.correctIndex&&<span style={{marginLeft:"auto"}}>✗</span>}
+                </button>
+              );
+            })}
+          </div>
+          {revealed&&<div style={{marginTop:14,background:"#0f172a",border:"1px solid #334155",borderRadius:12,padding:14,color:"#94a3b8",fontSize:13,lineHeight:1.7}}><span style={{color:"#a78bfa",fontWeight:700}}>💡 </span>{q.explanation}</div>}
+          <div style={{marginTop:14,display:"flex",gap:10}}>
+            {!revealed
+              ?<button onClick={()=>{if(sel!==null){const na=[...answers];na[idx]=sel;setAnswers(na);setRevealed(true);}}} disabled={sel===null} style={{flex:1,background:sel!==null?"linear-gradient(135deg,#7c3aed,#a78bfa)":"#1e293b",border:"none",borderRadius:12,padding:"13px",color:sel!==null?"#fff":"#334155",fontWeight:800,fontSize:15,cursor:sel!==null?"pointer":"not-allowed",fontFamily:"'Syne',sans-serif"}}>Confirm Answer</button>
+              :<button onClick={()=>{if(idx<questions.length-1){setIdx(i=>i+1);setSel(null);setRevealed(false);}else setPhase("results");}} style={{flex:1,background:"linear-gradient(135deg,#1e40af,#7c3aed)",border:"none",borderRadius:12,padding:"13px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"'Syne',sans-serif"}}>{idx<questions.length-1?"Next Question →":"See Results 🏁"}</button>
+            }
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if(phase==="results"){
+    const {scores,composite} = calcScores();
+    const sr = calcSectionResults();
+    const totCorrect=Object.values(sr).reduce((a,s)=>a+s.correct,0);
+    const totQ=Object.values(sr).reduce((a,s)=>a+s.total,0);
+    const pct=Math.round((totCorrect/totQ)*100);
+    return (
+      <div style={{animation:"slideUp 0.4s ease forwards"}}>
+        <div style={{textAlign:"center",marginBottom:24}}>
+          <div style={{fontSize:56,marginBottom:8}}>🏁</div>
+          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:28,marginBottom:4}}>{testType} Mock Complete!</div>
+          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:56,color:"#a78bfa",lineHeight:1,marginBottom:4}}>{composite}</div>
+          <div style={{color:"#64748b",fontSize:14}}>Projected {testType} · {totCorrect}/{totQ} correct ({pct}%)</div>
+        </div>
+        <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:20,marginBottom:16}}>
+          <div style={{fontWeight:700,fontSize:15,marginBottom:14}}>Section Breakdown</div>
+          {cfg.map((sec,i)=>{
+            const {correct,total}=sr[sec.subject];
+            const score=scores[sec.subject];
+            const p=Math.round((correct/total)*100);
+            const c=p>=75?"#22c55e":p>=55?"#a78bfa":"#ef4444";
+            return (
+              <div key={i} style={{marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:5}}>
+                  <span style={{color:"#cbd5e1",fontWeight:600}}>{sec.subject}</span>
+                  <span style={{fontFamily:"'Syne',sans-serif",fontWeight:800,color:"#a78bfa",fontSize:17}}>{score}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{flex:1,background:"#1e293b",borderRadius:999,height:6}}><div style={{width:`${p}%`,height:"100%",borderRadius:999,background:c,transition:"width 0.8s",boxShadow:`0 0 6px ${c}88`}}/></div>
+                  <span style={{fontSize:12,color:c,fontWeight:700,minWidth:65,textAlign:"right"}}>{correct}/{total} ({p}%)</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={()=>onComplete(scores,composite,testType)} style={{flex:1,background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:14,padding:"14px",color:"#fff",fontWeight:900,fontSize:15,cursor:"pointer",fontFamily:"'Syne',sans-serif"}}>Save Results ✓</button>
+          <button onClick={onAbort} style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:14,padding:"14px 18px",color:"#64748b",fontWeight:700,fontSize:13,cursor:"pointer"}}>Done</button>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
+// ─── SCORE PREDICTOR ──────────────────────────────────────────────────────────
+function ScorePredictor({ skillMap, profile, isPremium, setTab, mockHistory }) {
+  const testType = profile?.testType||"SAT";
+  const { sections, satComposite, actComposite } = predictScores(skillMap, testType);
+  const hasData = Object.values(sections).some(v=>v!==null);
+  const colleges = satComposite ? getCollegeMatch(satComposite) : actComposite ? getCollegeMatch(actComposite*40+360) : [];
+  const fitColors={reach:"#ef4444",match:"#f59e0b",likely:"#22c55e"};
+  const fitLabels={reach:"Reach",match:"Match",likely:"Safety"};
+  const subs = testType==="ACT"?["ACT Math","ACT English","ACT Reading","ACT Science"]:testType==="SAT"?["SAT Math","SAT Reading"]:["SAT Math","SAT Reading","ACT Math","ACT English","ACT Reading","ACT Science"];
+
+  return (
+    <div>
+      <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:22,marginBottom:6}}>📈 Score Predictor</div>
+      <div style={{color:"#64748b",fontSize:13,marginBottom:20}}>Based on your practice performance. More questions = more accurate predictions.</div>
+      {!isPremium&&(
+        <div style={{background:"linear-gradient(135deg,#1e1b4b,#0f172a)",border:"1px solid #a78bfa44",borderRadius:16,padding:24,textAlign:"center"}}>
+          <div style={{fontSize:36,marginBottom:8}}>🔒</div>
+          <div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Premium Feature</div>
+          <div style={{color:"#94a3b8",fontSize:13,marginBottom:16}}>Unlock your projected score + college match guide.</div>
+          <button onClick={()=>setTab("premium")} style={{background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:12,padding:"10px 24px",color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer"}}>Upgrade to Premium</button>
+        </div>
+      )}
+      {isPremium&&!hasData&&(
+        <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:32,textAlign:"center"}}>
+          <div style={{fontSize:40,marginBottom:12}}>📊</div>
+          <div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Not enough data yet</div>
+          <div style={{color:"#64748b",fontSize:13}}>Answer at least 5 questions per subject to see your projected score.</div>
+        </div>
+      )}
+      {isPremium&&hasData&&(
+        <>
+          {(satComposite||actComposite)&&(
+            <div style={{background:"linear-gradient(135deg,#1e1b4b,#0f172a)",border:"1px solid #a78bfa44",borderRadius:20,padding:24,marginBottom:16,textAlign:"center"}}>
+              {satComposite&&(
+                <>
+                  <div style={{fontSize:13,color:"#64748b",marginBottom:4,fontWeight:600,textTransform:"uppercase",letterSpacing:1}}>Projected SAT</div>
+                  <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:60,color:"#a78bfa",lineHeight:1}}>{satComposite}</div>
+                  <div style={{fontSize:12,color:"#475569",marginTop:4}}>out of 1600</div>
+                  {profile?.targetScore&&<div style={{marginTop:10,fontSize:13,color:"#64748b"}}>Target: <span style={{color:"#a78bfa",fontWeight:700}}>{profile.targetScore}</span></div>}
+                </>
+              )}
+              {actComposite&&(
+                <div style={{marginTop:satComposite?20:0}}>
+                  <div style={{fontSize:13,color:"#64748b",marginBottom:4,fontWeight:600,textTransform:"uppercase",letterSpacing:1}}>Projected ACT</div>
+                  <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:60,color:"#c084fc",lineHeight:1}}>{actComposite}</div>
+                  <div style={{fontSize:12,color:"#475569",marginTop:4}}>out of 36</div>
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:20,marginBottom:16}}>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:14}}>Section Breakdown</div>
+            {subs.map(subId=>{
+              const score=sections[subId];
+              const sub=SUBJECTS.find(s=>s.id===subId);
+              if(!score) return <div key={subId} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:10,color:"#334155"}}><span>{sub?.icon} {subId}</span><span>No data yet</span></div>;
+              const maxS=subId.startsWith("SAT")?800:36;
+              const minS=subId.startsWith("SAT")?200:1;
+              const p=((score-minS)/(maxS-minS))*100;
+              const c=p>=70?"#22c55e":p>=45?"#a78bfa":"#ef4444";
+              return (
+                <div key={subId} style={{marginBottom:14}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                    <span style={{fontSize:13,color:"#cbd5e1"}}>{sub?.icon} {subId}</span>
+                    <span style={{fontFamily:"'Syne',sans-serif",fontWeight:800,color:c,fontSize:20}}>{score}</span>
+                  </div>
+                  <div style={{background:"#1e293b",borderRadius:999,height:6}}><div style={{width:`${p}%`,height:"100%",borderRadius:999,background:c,boxShadow:`0 0 6px ${c}88`,transition:"width 0.8s"}}/></div>
+                </div>
+              );
+            })}
+            <div style={{marginTop:10,padding:"10px 12px",background:"#1e293b",borderRadius:10,fontSize:12,color:"#64748b",lineHeight:1.6}}>ℹ️ Based on your practice accuracy + skill coverage. Takes mock exams into account when available.</div>
+          </div>
+          {colleges.length>0&&(
+            <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:20,marginBottom:16}}>
+              <div style={{fontWeight:700,fontSize:15,marginBottom:14}}>🏫 College Match</div>
+              {colleges.map((c,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:i<colleges.length-1?"1px solid #1e293b":"none"}}>
+                  <div><div style={{fontWeight:600,fontSize:13,color:"#cbd5e1"}}>{c.name}</div><div style={{fontSize:11,color:"#475569"}}>Typical range: {c.range[0]}–{c.range[1]}</div></div>
+                  <div style={{background:`${fitColors[c.fit]}22`,border:`1px solid ${fitColors[c.fit]}44`,borderRadius:8,padding:"3px 10px",fontSize:12,color:fitColors[c.fit],fontWeight:700}}>{fitLabels[c.fit]}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {mockHistory.length>0&&(
+            <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:20}}>
+              <div style={{fontWeight:700,fontSize:15,marginBottom:14}}>📝 Mock Exam History</div>
+              {mockHistory.map((exam,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:i<mockHistory.length-1?"1px solid #1e293b":"none"}}>
+                  <div><div style={{fontWeight:600,fontSize:13,color:"#cbd5e1"}}>{exam.testType} Mock #{i+1}</div><div style={{fontSize:11,color:"#475569"}}>{new Date(exam.date).toLocaleDateString()}</div></div>
+                  <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,color:"#a78bfa",fontSize:22}}>{exam.composite}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── STUDY GUIDE ──────────────────────────────────────────────────────────────
+function StudyGuidePanel({ skillMap, profile, userName, isPremium, setTab }) {
+  const [loading, setLoading] = useState(false);
+  const [guide, setGuide] = useState("");
+  const [err, setErr] = useState("");
+  const hasData = Object.values(skillMap).some(v=>v.attempts>0);
+
+  const generate = async () => {
+    setLoading(true); setErr("");
+    try {
+      const text = await generateStudyGuide({skillMap, testType:profile?.testType||"SAT", targetScore:profile?.targetScore||"1400+", userName});
+      setGuide(text);
+    } catch(e) { setErr("Failed to generate. Check your connection and try again."); }
+    setLoading(false);
+  };
+
+  const download = () => {
+    const blob = new Blob([guide],{type:"text/plain"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href=url; a.download=`SATxp_Study_Guide_${userName||"Student"}.txt`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const printGuide = () => {
+    const win = window.open("","_blank");
+    win.document.write(`<html><head><title>SATxp Study Guide</title><style>
+      body{font-family:Georgia,serif;max-width:720px;margin:40px auto;line-height:1.9;color:#1a1a2e;padding:24px;}
+      .title{font-size:28px;border-bottom:4px solid #7c3aed;padding-bottom:10px;color:#7c3aed;margin-bottom:6px;}
+      .meta{font-size:14px;color:#666;margin-bottom:28px;}
+      .section-title{font-size:13px;font-weight:bold;color:#7c3aed;text-transform:uppercase;letter-spacing:1.5px;margin:24px 0 8px;border-left:4px solid #7c3aed;padding-left:12px;}
+      p{margin:6px 0;}
+      .footer{margin-top:48px;font-size:12px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:12px;}
+    </style></head><body>
+    <div class="title">📚 SATxp Personalized Study Guide</div>
+    <div class="meta"><strong>${userName||"Student"}</strong> &nbsp;|&nbsp; Target: <strong>${profile?.targetScore||"N/A"}</strong> &nbsp;|&nbsp; Test: <strong>${profile?.testType||"SAT"}</strong> &nbsp;|&nbsp; ${new Date().toLocaleDateString()}</div>
+    ${guide.split("\n").map(line=>{
+      if(line.startsWith("===")) return `<div class="section-title">${line.replace(/===/g,"").trim()}</div>`;
+      if(line.startsWith("-")) return `<p>• ${line.slice(1).trim()}</p>`;
+      if(!line.trim()) return "<br/>";
+      return `<p>${line}</p>`;
+    }).join("")}
+    <div class="footer">Generated by SATxp &nbsp;·&nbsp; @highschoolinvestor &nbsp;·&nbsp; ${new Date().toLocaleDateString()}</div>
+    </body></html>`);
+    win.document.close(); win.print();
+  };
+
+  return (
+    <div>
+      <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:22,marginBottom:6}}>📋 Study Guide</div>
+      <div style={{color:"#64748b",fontSize:13,marginBottom:20}}>AI generates a personalized week-by-week plan based on your exact weak spots.</div>
+      {!isPremium&&(
+        <div style={{background:"linear-gradient(135deg,#1e1b4b,#0f172a)",border:"1px solid #a78bfa44",borderRadius:16,padding:24,textAlign:"center"}}>
+          <div style={{fontSize:36,marginBottom:8}}>🔒</div>
+          <div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Premium Feature</div>
+          <div style={{color:"#94a3b8",fontSize:13,marginBottom:16}}>Upgrade to generate and download your personalized study guide.</div>
+          <button onClick={()=>setTab("premium")} style={{background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:12,padding:"10px 24px",color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer"}}>Upgrade to Premium</button>
+        </div>
+      )}
+      {isPremium&&!hasData&&(
+        <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:32,textAlign:"center"}}>
+          <div style={{fontSize:40,marginBottom:12}}>📝</div>
+          <div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Practice first</div>
+          <div style={{color:"#64748b",fontSize:13}}>Your guide is tailored to your gaps — answer some questions first so AI knows where to focus.</div>
+        </div>
+      )}
+      {isPremium&&hasData&&!guide&&(
+        <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:28,textAlign:"center"}}>
+          <div style={{fontSize:44,marginBottom:12}}>📋</div>
+          <div style={{fontWeight:700,fontSize:16,marginBottom:8}}>Ready to generate your plan</div>
+          <div style={{color:"#64748b",fontSize:13,marginBottom:20}}>AI will analyze your skill gaps and write a full week-by-week study plan tailored specifically to you.</div>
+          <button onClick={generate} disabled={loading} style={{background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:14,padding:"14px 32px",color:"#fff",fontWeight:800,fontSize:16,cursor:loading?"not-allowed":"pointer",fontFamily:"'Syne',sans-serif",opacity:loading?0.7:1}}>
+            {loading?"⟳ Generating (~15 seconds)...":"✨ Generate My Study Guide"}
+          </button>
+          {err&&<div style={{marginTop:12,color:"#fca5a5",fontSize:13}}>{err}</div>}
+        </div>
+      )}
+      {isPremium&&guide&&(
+        <div>
+          <div style={{display:"flex",gap:10,marginBottom:16}}>
+            <button onClick={download} style={{flex:1,background:"linear-gradient(135deg,#1e40af,#3b82f6)",border:"none",borderRadius:12,padding:"12px",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>⬇️ Download .txt</button>
+            <button onClick={printGuide} style={{flex:1,background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:12,padding:"12px",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>🖨️ Print / PDF</button>
+            <button onClick={()=>setGuide("")} style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:12,padding:"12px 14px",color:"#64748b",fontWeight:700,fontSize:13,cursor:"pointer"}}>↺ Redo</button>
+          </div>
+          <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:24}}>
+            {guide.split("\n").map((line,i)=>{
+              if(line.startsWith("===")) return <div key={i} style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:13,color:"#a78bfa",marginTop:i>0?20:0,marginBottom:8,letterSpacing:0.5,borderLeft:"3px solid #7c3aed",paddingLeft:10}}>{line.replace(/===/g,"").trim()}</div>;
+              if(line.startsWith("-")) return <div key={i} style={{fontSize:13,color:"#94a3b8",lineHeight:1.7,paddingLeft:14,marginBottom:4}}>• {line.slice(1).trim()}</div>;
+              if(!line.trim()) return <div key={i} style={{height:8}}/>;
+              return <div key={i} style={{fontSize:13,color:"#cbd5e1",lineHeight:1.8,marginBottom:4}}>{line}</div>;
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+function MainApp({ userName, uid, profile, onLogout }) {
+  const [tab, setTab] = useState("practice");
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [xp, setXp] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [lastStudyDate, setLastStudyDate] = useState(null);
+  const [isPremium, setIsPremium] = useState(profile?.isPremium || false);
+  useEffect(()=>{ if(profile?.isPremium) setIsPremium(true); },[profile]);
+  useEffect(()=>{ window._satxpIsPremium = isPremium; },[isPremium]);
+  const [totalAnswered, setTotalAnswered] = useState(0);
+  const [totalCorrect, setTotalCorrect] = useState(0);
+  const [showXpGain, setShowXpGain] = useState(null);
+  const [skillMap, setSkillMap] = useState({});
+  const [srQueue, setSrQueue] = useState([]);
+  const [currentQ, setCurrentQ] = useState(null);
+  const [loadingQ, setLoadingQ] = useState(false);
+  const [answered, setAnswered] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [questionsAnswered, setQuestionsAnswered] = useState(0);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [timedMode, setTimedMode] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(90);
+  const [timerActive, setTimerActive] = useState(false);
+  const timerRef = useRef(null);
+  const [diagnosisText, setDiagnosisText] = useState("");
+  const [loadingDiag, setLoadingDiag] = useState(false);
+  const [adaptiveDiff, setAdaptiveDiff] = useState(1);
+  const recentResults = useRef([]);
+  const [activeSubject, setActiveSubject] = useState(null);
+  const [adaptiveMode, setAdaptiveMode] = useState(false);
+  const [mockMode, setMockMode] = useState(null);
+  const [mockHistory, setMockHistory] = useState([]);
+  const [lbData, setLbData] = useState([]);
+  const [lbLoading, setLbLoading] = useState(false);
+  const [friends, setFriends] = useState([]);
+  const [pendingReqs, setPendingReqs] = useState([]);
+  const [friendSearch, setFriendSearch] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [friendSearching, setFriendSearching] = useState(false);
+  const [friendMsg, setFriendMsg] = useState("");
+  const [showFriendLb, setShowFriendLb] = useState(false);
+
+  // ── Load all game data from Firestore on mount ──────────────────────────────
+  useEffect(() => {
+    if (!uid) return;
+    (async () => {
+      const data = await loadGameData(uid);
+      if (data) {
+        setXp(data.xp || 0);
+        setTotalAnswered(data.totalAnswered || 0);
+        setTotalCorrect(data.totalCorrect || 0);
+        setSkillMap(data.skillMap || {});
+        setSrQueue(data.srQueue || []);
+        setMockHistory(data.mockHistory || []);
+        setAdaptiveDiff(data.adaptiveDiff || 1);
+        setStreak(data.streak || 0);
+        setLastStudyDate(data.lastStudyDate || null);
+        // Restore today's question count
+        const today = new Date().toDateString();
+        if (data.dailyDate === today) {
+          setQuestionsAnswered(data.dailyCount || 0);
+        } else {
+          setQuestionsAnswered(0);
+        }
+      }
+      setDataLoaded(true);
+    })();
+  }, [uid]);
+
+  // ── Save game data to Firestore whenever key state changes ─────────────────
+  const saveRef = useRef(null);
+  const pendingSave = useRef({});
+
+  const scheduleSave = (updates) => {
+    pendingSave.current = { ...pendingSave.current, ...updates };
+    clearTimeout(saveRef.current);
+    saveRef.current = setTimeout(() => {
+      if (uid) saveGameData(uid, pendingSave.current);
+      pendingSave.current = {};
+    }, 1500); // debounce: save 1.5s after last change
+  };
+
+  const rank = getRank(xp);
+  const dueCount = getDueCards(srQueue).length;
+
+  const pickNextTarget = useCallback(() => {
+    const due = getDueCards(srQueue);
+    if(due.length>0&&!activeSubject){const c=due[Math.floor(Math.random()*due.length)];return{subject:c.subject,skill:c.skill,fromSR:true};}
+    if(activeSubject&&SKILLS[activeSubject]){
+      const skills=SKILLS[activeSubject];
+      const weak=skills.filter(sk=>{const d=skillMap[sk];if(!d||d.attempts<2)return true;return getSkillMastery(d)<70;});
+      const pool=weak.length>0?weak:skills;
+      return{subject:activeSubject,skill:pool[Math.floor(Math.random()*pool.length)],fromSR:false};
+    }
+    const testType=profile?.testType||"SAT";
+    const subjPool=testType==="Both"?Object.keys(SKILLS):Object.keys(SKILLS).filter(k=>k.startsWith(testType==="ACT"?"ACT":"SAT"));
+    const all=subjPool.flatMap(sub=>SKILLS[sub].map(sk=>({subject:sub,skill:sk})));
+    const weak=all.filter(({skill})=>{const d=skillMap[skill];if(!d||d.attempts<2)return true;return getSkillMastery(d)<70;});
+    const pool=weak.length>0?weak:all;
+    return pool[Math.floor(Math.random()*pool.length)];
+  },[srQueue,skillMap,profile,activeSubject]);
+
+  const loadQuestion = useCallback(async () => {
+    if(!isPremium&&questionsAnswered>=FREE_LIMIT) return;
+    setLoadingQ(true);setAnswered(null);setSelected(null);setCurrentQ(null);setErrorMsg(null);
+    if(timedMode){setTimeLeft(90);setTimerActive(false);}
+    try {
+      const target=pickNextTarget();
+      const weak=getWeakSkills(skillMap);
+      const recentWrong=Object.entries(skillMap).filter(([,v])=>v.attempts>0&&v.correct/v.attempts<0.5).map(([k])=>k);
+      const q=await generateQuestion({subject:target.subject,skill:target.skill,difficulty:adaptiveDiff,testType:profile?.testType||"SAT",wrongSkills:weak,recentWrong});
+      setCurrentQ({...q,subject:target.subject,fromSR:target.fromSR});
+      if(timedMode) setTimerActive(true);
+    } catch(e){setErrorMsg("Couldn't generate question. Check your connection and try again.");}
+    setLoadingQ(false);
+  },[isPremium,questionsAnswered,pickNextTarget,skillMap,adaptiveDiff,timedMode,profile]);
+
+  useEffect(()=>{
+    if(timerActive&&timeLeft>0){timerRef.current=setTimeout(()=>setTimeLeft(t=>t-1),1000);}
+    else if(timerActive&&timeLeft===0){setTimerActive(false);setAnswered(-1);}
+    return()=>clearTimeout(timerRef.current);
+  },[timerActive,timeLeft]);
+
+  useEffect(()=>{
+    if(tab==="practice"&&activeSubject!==null&&!currentQ&&!loadingQ&&!mockMode) loadQuestion();
+  },[activeSubject,tab]);
+
+  const handleAnswer = async(i) => {
+    if(answered!==null) return;
+    setSelected(i);setAnswered(i);setTimerActive(false);clearTimeout(timerRef.current);
+    const isCorrect=i===currentQ.correctIndex;
+    const xpGain=isCorrect?(adaptiveDiff===1?50:adaptiveDiff===2?75:120):0;
+    const xpLoss=isCorrect?0:(adaptiveDiff===1?25:adaptiveDiff===2?40:60);
+    const net=xpGain-xpLoss;
+    const newXp = Math.max(0, xp + net);
+    setXp(newXp);
+    setShowXpGain(net>=0?`+${net}`:`${net}`);
+    setTimeout(()=>setShowXpGain(null),2000);
+    const newTotalAnswered = totalAnswered + 1;
+    const newTotalCorrect = isCorrect ? totalCorrect + 1 : totalCorrect;
+    setTotalAnswered(newTotalAnswered);
+    if(isCorrect) setTotalCorrect(newTotalCorrect);
+    const newDailyCount = questionsAnswered + 1;
+    setQuestionsAnswered(newDailyCount);
+    const newSkillMap = {...skillMap};
+    const ex = newSkillMap[currentQ.skill]||{attempts:0,correct:0};
+    newSkillMap[currentQ.skill] = {attempts:ex.attempts+1, correct:ex.correct+(isCorrect?1:0)};
+    setSkillMap(newSkillMap);
+    recentResults.current=[...recentResults.current.slice(-4),isCorrect];
+    const acc=recentResults.current.filter(Boolean).length/recentResults.current.length;
+    let newAdaptiveDiff = adaptiveDiff;
+    if(recentResults.current.length>=3){
+      if(acc>=0.8&&adaptiveDiff<3){newAdaptiveDiff=adaptiveDiff+1;setAdaptiveDiff(newAdaptiveDiff);}
+      else if(acc<=0.4&&adaptiveDiff>1){newAdaptiveDiff=adaptiveDiff-1;setAdaptiveDiff(newAdaptiveDiff);}
+    }
+    const srRating=isCorrect?(timeLeft>60?3:2):1;
+    const intervalHours=SR_INTERVALS[Math.min(srRating,SR_INTERVALS.length-1)];
+    const newSrQueue = srQueue.map(c=>c.skill===currentQ.skill?{...c,nextReview:Date.now()+intervalHours*3600000}:c);
+    if(!newSrQueue.find(c=>c.skill===currentQ.skill) && !isCorrect) {
+      newSrQueue.push({skill:currentQ.skill,subject:currentQ.subject,difficulty:adaptiveDiff,nextReview:Date.now()+intervalHours*3600000,interval:intervalHours});
+    }
+    setSrQueue(newSrQueue);
+    // Update streak
+    const today = new Date().toDateString();
+    const yesterday = new Date(Date.now()-86400000).toDateString();
+    let newStreak = streak;
+    if (lastStudyDate !== today) {
+      newStreak = lastStudyDate === yesterday ? streak + 1 : 1;
+      setStreak(newStreak);
+      setLastStudyDate(today);
+    }
+    // Save everything to Firestore
+    scheduleSave({
+      xp: newXp,
+      totalAnswered: newTotalAnswered,
+      totalCorrect: newTotalCorrect,
+      skillMap: newSkillMap,
+      srQueue: newSrQueue,
+      adaptiveDiff: newAdaptiveDiff,
+      streak: newStreak,
+      lastStudyDate: today,
+      dailyCount: newDailyCount,
+      dailyDate: today,
+    });
+  };
+
+  const handleSubjectSelect=(subId)=>{if(subId==="review"){setTab("review");return;}setActiveSubject(subId);setAdaptiveMode(false);setCurrentQ(null);setAnswered(null);setSelected(null);setErrorMsg(null);};
+  const handleStartAdaptive=()=>{setActiveSubject("adaptive");setAdaptiveMode(true);setCurrentQ(null);setAnswered(null);setSelected(null);setErrorMsg(null);};
+  const handleStartMock=(t)=>setMockMode(t);
+  const handleMockComplete=(scores,composite,testType)=>{
+    const newHistory=[...mockHistory,{testType,scores,composite,date:Date.now()}];
+    setMockHistory(newHistory);
+    setMockMode(null);setActiveSubject(null);
+    scheduleSave({ mockHistory: newHistory });
+  };
+  const handleBackToPicker=()=>{setActiveSubject(null);setAdaptiveMode(false);setCurrentQ(null);setAnswered(null);setSelected(null);setTimerActive(false);clearTimeout(timerRef.current);};
+
+  const locked=!isPremium&&questionsAnswered>=FREE_LIMIT;
+  if (!dataLoaded) return (
+    <div style={{minHeight:"100vh",background:"#020617",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+      <div style={{width:48,height:48,borderRadius:14,background:"linear-gradient(135deg,#7c3aed,#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>⚡</div>
+      <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:20,color:"#f1f5f9"}}>Loading your data...</div>
+      <div style={{display:"flex",gap:6,marginTop:4}}>{[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:"#a78bfa",animation:"orbFloat 1.2s ease-in-out infinite",animationDelay:`${i*0.2}s`}}/>)}</div>
+    </div>
+  );
+  const overallAccuracy=totalAnswered>0?Math.round((totalCorrect/totalAnswered)*100):0;
+  const activeSubjectInfo=SUBJECTS.find(s=>s.id===activeSubject);
+
+  // Fetch real leaderboard from Firestore
+  const loadLeaderboard = async () => {
+    setLbLoading(true);
+    const data = await fetchLeaderboard();
+    // Ensure current user is in list
+    const me = {uid, name:userName, xp, rankName:getRank(xp).name};
+    const filtered = data.filter(p=>p.uid!==uid);
+    setLbData([...filtered, me].sort((a,b)=>b.xp-a.xp));
+    setLbLoading(false);
+  };
+  // Sync XP whenever it changes
+  useEffect(()=>{
+    if(uid) syncXpToLeaderboard(uid, userName, xp);
+  },[xp, uid]);
+  // Load friends
+  const loadFriends = async () => {
+    if(!uid) return;
+    const [f, p] = await Promise.all([fetchFriends(uid), fetchPendingRequests(uid)]);
+    setFriends(f);
+    setPendingReqs(p);
+  };
+  useEffect(()=>{ if(uid){ loadFriends(); } },[uid]);
+  const handleSearchFriend = async() => {
+    if(!friendSearch.trim()) return;
+    setFriendSearching(true); setFriendMsg(""); setSearchResults([]);
+    const results = await searchUsers(friendSearch.trim());
+    const filtered = results.filter(u => u.uid !== uid);
+    setSearchResults(filtered);
+    if(!filtered.length) setFriendMsg("No users found. Try a different name.");
+    setFriendSearching(false);
+  };
+  const handleAddFriend = async(theirUid) => {
+    if (theirUid === uid) { setFriendMsg("You can\'t add yourself!"); return; }
+    const r = await sendFriendRequest(uid, userName, theirUid);
+    if (r.success) {
+      setFriendMsg("Friend request sent! ✓");
+      setSearchResults([]);
+    } else if (r.error === "already_exists") {
+      setFriendMsg("Friend request already sent or you\'re already friends.");
+    } else {
+      setFriendMsg("Something went wrong — try again.");
+    }
+  };
+  const handleAcceptFriend = async(fromUid) => {
+    await acceptFriendRequest(uid, fromUid);
+    await loadFriends();
+  };
+  const handleDeclineFriend = async(fromUid) => {
+    await declineFriendRequest(uid, fromUid);
+    await loadFriends();
+  };
+  const handleRemoveFriend = async(theirUid) => {
+    await removeFriend(uid, theirUid);
+    await loadFriends();
+  };
+  const PREMIUM_FEATURES=["Unlimited AI-generated questions","Full SAT & ACT mock exams","Score predictor + college match","AI diagnosis & weak spot analysis","Personalized study guide download","Spaced repetition review system","Adaptive difficulty engine","Priority national leaderboard"];
+
+  const runDiagnosis=async()=>{
+    if(totalAnswered<3){setDiagnosisText("Answer at least 3 questions first.");return;}
+    setLoadingDiag(true);
+    try{const t=await generateDiagnosis({skillMap,testType:profile?.testType||"SAT",targetScore:profile?.targetScore||"1400+",totalQuestions:totalAnswered,accuracy:overallAccuracy});setDiagnosisText(t);}
+    catch(e){setDiagnosisText("Could not generate diagnosis. Try again.");}
+    setLoadingDiag(false);
+  };
+
+  const midnight = () => {
+    const now = new Date();
+    const ms = new Date(now.getFullYear(),now.getMonth(),now.getDate()+1)-now;
+    const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000);
+    return `${h}h ${m}m`;
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:"#020617",color:"#f1f5f9",fontFamily:"'DM Sans',sans-serif"}}>
+      {showXpGain&&<div style={{position:"fixed",top:80,right:24,zIndex:9999,background:showXpGain.startsWith("-")?"linear-gradient(135deg,#dc2626,#ef4444)":"linear-gradient(135deg,#7c3aed,#a78bfa)",borderRadius:16,padding:"12px 20px",fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:20,color:"#fff",animation:"fadeUp 2s ease forwards",boxShadow:showXpGain.startsWith("-")?"0 8px 32px #dc262666":"0 8px 32px #7c3aed66",pointerEvents:"none"}}>{showXpGain} XP {showXpGain.startsWith("-")?"💔":"✨"}</div>}
+
+      {/* Header */}
+      <div style={{background:"rgba(2,6,23,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid #1e293b",padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:34,height:34,borderRadius:10,background:"linear-gradient(135deg,#7c3aed,#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>⚡</div>
+          <div>
+            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:17,letterSpacing:-0.5}}>SAT<span style={{color:"#a78bfa"}}>xp</span></div>
+            <div style={{fontSize:10,color:"#64748b",marginTop:-2}}>by <span style={{color:"#a78bfa",fontWeight:700}}>@highschoolinvestor</span></div>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          {dueCount>0&&<div style={{background:"#7c3aed22",border:"1px solid #7c3aed44",borderRadius:999,padding:"5px 12px",fontSize:12,color:"#a78bfa",fontWeight:700,cursor:"pointer"}} onClick={()=>setTab("review")}>🔁 {dueCount}</div>}
+          <div style={{display:"flex",alignItems:"center",gap:5,background:"#1e293b",borderRadius:999,padding:"5px 12px"}}><span>🔥</span><span style={{fontWeight:700,color:"#a78bfa",fontSize:13}}>{streak}</span></div>
+          {!isPremium?<button onClick={()=>setTab("premium")} style={{background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:999,padding:"6px 14px",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer"}}>⚡ Pro</button>:<div style={{background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:999,padding:"5px 12px",color:"#a78bfa",fontWeight:700,fontSize:12}}>👑 Pro</div>}
+          <button onClick={onLogout} style={{background:"none",border:"1px solid #1e293b",borderRadius:999,padding:"5px 12px",color:"#475569",fontSize:11,cursor:"pointer"}}>↩ Out</button>
+
+        </div>
+      </div>
+
+      {/* XP Bar */}
+      <div style={{padding:"10px 20px",borderBottom:"1px solid #0f172a"}}><XPBar xp={xp} rank={rank}/></div>
+
+      {/* Nav */}
+      <div style={{display:"flex",borderBottom:"1px solid #1e293b",padding:"0 12px",overflowX:"auto"}}>
+        {[{id:"practice",label:"Practice",icon:"⚡"},{id:"review",label:"Review",icon:"🔁"},{id:"stats",label:"Stats",icon:"📊"},{id:"predict",label:"Predict",icon:"📈"},{id:"guide",label:"Guide",icon:"📋"},{id:"leaderboard",label:"Ranks",icon:"🏆"},{id:"premium",label:"Premium",icon:"👑"}].map(t=>(
+          <button key={t.id} onClick={()=>{setTab(t.id);if(t.id==="practice"){setActiveSubject(null);setMockMode(null);}if(t.id==="leaderboard"){loadLeaderboard();}}} style={{background:"none",border:"none",padding:"12px 12px",whiteSpace:"nowrap",color:tab===t.id?"#a78bfa":"#64748b",fontWeight:700,fontSize:13,cursor:"pointer",borderBottom:tab===t.id?"2px solid #a78bfa":"2px solid transparent",fontFamily:"'DM Sans',sans-serif",transition:"all 0.2s",flexShrink:0}}>
+            {t.icon} {t.label}{t.id==="review"&&dueCount>0?` (${dueCount})`:""}
+          </button>
+        ))}
+      </div>
+
+      <div style={{maxWidth:680,margin:"0 auto",padding:"20px 16px"}}>
+
+        {/* ─── PRACTICE ─── */}
+        {tab==="practice"&&(
+          <div>
+            {mockMode&&<MockExam testType={mockMode} profile={profile} onComplete={handleMockComplete} onAbort={()=>{setMockMode(null);setActiveSubject(null);}}/>}
+            {!mockMode&&activeSubject===null&&<SubjectPicker profile={profile} skillMap={skillMap} dueCount={dueCount} onSelect={handleSubjectSelect} onStartAdaptive={handleStartAdaptive} onStartMock={handleStartMock} isPremium={isPremium} setTab={setTab}/>}
+            {!mockMode&&activeSubject!==null&&(
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+                  <button onClick={handleBackToPicker} style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:10,padding:"8px 14px",color:"#94a3b8",fontWeight:700,fontSize:13,cursor:"pointer"}}>← Back</button>
+                  <div style={{flex:1}}>
+                    <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:18}}>{adaptiveMode?"🤖 AI Adaptive Mix":`${activeSubjectInfo?.icon||"⚡"} ${activeSubjectInfo?.label||activeSubject}`}</div>
+                    <div style={{color:"#64748b",fontSize:12,marginTop:1}}>Difficulty: {["","Easy 🟢","Medium 🟡","Hard 🔴"][adaptiveDiff]} · {questionsAnswered} today{!isPremium&&<span style={{color:"#a78bfa"}}> · {Math.max(0,FREE_LIMIT-questionsAnswered)} free left today</span>}</div>
+                  </div>
+                  <button onClick={()=>setTimedMode(t=>!t)} style={{background:timedMode?"#a78bfa22":"#0f172a",border:`1px solid ${timedMode?"#a78bfa":"#334155"}`,borderRadius:10,padding:"7px 12px",color:timedMode?"#a78bfa":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer"}}>⏱️ {timedMode?"ON":"OFF"}</button>
+                </div>
+                {timedMode&&currentQ&&(
+                  <div style={{marginBottom:14}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#94a3b8",marginBottom:4}}><span>Time remaining</span><span style={{color:timeLeft<20?"#ef4444":"#a78bfa",fontWeight:700}}>{timeLeft}s</span></div>
+                    <div style={{background:"#1e293b",borderRadius:999,height:6}}><div style={{width:`${(timeLeft/90)*100}%`,height:"100%",borderRadius:999,background:timeLeft<20?"#ef4444":"linear-gradient(90deg,#7c3aed,#a78bfa)",transition:"width 1s linear"}}/></div>
+                  </div>
+                )}
+                {locked&&(
+                  <div style={{background:"linear-gradient(135deg,#1e293b,#0f172a)",border:"1px solid #334155",borderRadius:20,padding:32,textAlign:"center"}}>
+                    <div style={{fontSize:48,marginBottom:12}}>🔒</div>
+                    <div style={{fontFamily:"'Syne',sans-serif",fontSize:22,fontWeight:800,marginBottom:8}}>Daily Limit Reached</div>
+                    <div style={{color:"#94a3b8",marginBottom:8}}>You've used your {FREE_LIMIT} free questions today.</div>
+                    <div style={{color:"#64748b",fontSize:13,marginBottom:24}}>Resets in {midnight()} · Upgrade for unlimited access</div>
+                    <button onClick={()=>setTab("premium")} style={{background:"linear-gradient(135deg,#7c3aed,#a78bfa)",color:"#fff",border:"none",borderRadius:12,padding:"12px 28px",fontWeight:800,fontSize:16,cursor:"pointer"}}>🚀 Go Premium — $10/mo</button>
+                  </div>
+                )}
+                {!locked&&loadingQ&&(
+                  <div style={{background:"linear-gradient(135deg,#1e293b,#0f172a)",border:"1px solid #334155",borderRadius:20,padding:48,textAlign:"center"}}>
+                    <div style={{fontSize:36,marginBottom:16,animation:"orbFloat 2s ease-in-out infinite"}}>🤖</div>
+                    <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:18,marginBottom:8}}>Generating your question...</div>
+                    <div style={{color:"#64748b",fontSize:13}}>{adaptiveMode?"Finding your weakest skill":"Focusing on "+activeSubject}</div>
+                    <div style={{marginTop:20,display:"flex",gap:6,justifyContent:"center"}}>{[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:"#a78bfa",animation:"orbFloat 1.2s ease-in-out infinite",animationDelay:`${i*0.2}s`}}/>)}</div>
+                  </div>
+                )}
+                {!locked&&errorMsg&&(
+                  <div style={{background:"#1e0a0a",border:"1px solid #c084fc44",borderRadius:16,padding:20,textAlign:"center",color:"#fca5a5"}}>
+                    {errorMsg}
+                    <button onClick={loadQuestion} style={{display:"block",margin:"12px auto 0",background:"#a78bfa",border:"none",borderRadius:10,padding:"8px 20px",color:"#fff",fontWeight:700,cursor:"pointer"}}>Try Again</button>
+                  </div>
+                )}
+                {!locked&&!loadingQ&&currentQ&&(
+                  <div style={{background:"linear-gradient(135deg,#1e293b,#0f172a)",border:"1px solid #334155",borderRadius:20,padding:24}}>
+                    <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+                      <span style={{background:"#0f172a",border:"1px solid #334155",borderRadius:999,padding:"3px 12px",fontSize:12,color:"#a78bfa",fontWeight:700}}>{currentQ.subject}</span>
+                      <span style={{background:"#1e1b4b",border:"1px solid #a78bfa44",borderRadius:999,padding:"3px 12px",fontSize:12,color:"#c4b5fd",fontWeight:600}}>{currentQ.skill}</span>
+                      <span style={{background:currentQ.difficulty==="easy"?"#052e16":currentQ.difficulty==="medium"?"#1e3a5f":"#3b0764",border:`1px solid ${currentQ.difficulty==="easy"?"#16a34a":currentQ.difficulty==="medium"?"#3b82f6":"#a855f7"}`,borderRadius:999,padding:"3px 12px",fontSize:12,fontWeight:700,color:currentQ.difficulty==="easy"?"#4ade80":currentQ.difficulty==="medium"?"#93c5fd":"#d8b4fe"}}>{currentQ.difficulty}</span>
+                      {currentQ.fromSR&&<span style={{background:"#7c3aed22",border:"1px solid #7c3aed44",borderRadius:999,padding:"3px 12px",fontSize:12,color:"#c4b5fd",fontWeight:700}}>🔁 Review</span>}
+                      <span style={{marginLeft:"auto",color:"#a78bfa",fontWeight:700,fontSize:13}}>+{adaptiveDiff===1?50:adaptiveDiff===2?75:120} / -{adaptiveDiff===1?25:adaptiveDiff===2?40:60} XP</span>
+                    </div>
+                    <div style={{fontFamily:"'Syne',sans-serif",fontSize:17,fontWeight:600,color:"#f1f5f9",lineHeight:1.6,marginBottom:20}}>{currentQ.question}</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                      {currentQ.choices.map((opt,i)=>{
+                        let bg="#0f172a",border="#334155",color="#cbd5e1";
+                        if(answered!==null){if(i===currentQ.correctIndex){bg="#052e16";border="#16a34a";color="#4ade80";}else if(i===selected&&selected!==currentQ.correctIndex){bg="#3b0a0a";border="#c084fc";color="#fca5a5";}}
+                        return (
+                          <button key={i} onClick={()=>!answered&&handleAnswer(i)} style={{background:bg,border:`1px solid ${border}`,borderRadius:12,padding:"12px 16px",textAlign:"left",color,cursor:answered!==null?"default":"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,transition:"all 0.2s",display:"flex",alignItems:"center",gap:10}}>
+                            <span style={{width:24,height:24,borderRadius:"50%",background:"#1e293b",border:`1px solid ${border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0,color}}>{String.fromCharCode(65+i)}</span>
+                            {opt}
+                            {answered!==null&&i===currentQ.correctIndex&&<span style={{marginLeft:"auto"}}>✓</span>}
+                            {answered!==null&&i===selected&&selected!==currentQ.correctIndex&&<span style={{marginLeft:"auto"}}>✗</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {answered===-1&&<div style={{marginTop:14,background:"#3b0a0a",border:"1px solid #c084fc44",borderRadius:12,padding:12,color:"#fca5a5",fontSize:14,fontWeight:700,textAlign:"center"}}>⏰ Time's up! Correct: {String.fromCharCode(65+currentQ.correctIndex)}</div>}
+                    {answered!==null&&(
+                      <div style={{marginTop:14}}>
+                        <div style={{background:"#0f172a",border:"1px solid #334155",borderRadius:12,padding:14,color:"#94a3b8",fontSize:13,lineHeight:1.7,marginBottom:10}}><span style={{color:"#a78bfa",fontWeight:700}}>💡 Explanation: </span>{currentQ.explanation}</div>
+                        {currentQ.conceptTaught&&<div style={{background:"#1e1b4b",border:"1px solid #a78bfa33",borderRadius:12,padding:12,color:"#c4b5fd",fontSize:12,marginBottom:14}}><span style={{fontWeight:700}}>🎯 What this tests: </span>{currentQ.conceptTaught}</div>}
+                        <div style={{display:"flex",gap:10}}>
+                          <button onClick={loadQuestion} style={{flex:1,background:"linear-gradient(135deg,#1e40af,#7c3aed)",border:"none",borderRadius:14,padding:"13px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"'Syne',sans-serif"}}>Next Question →</button>
+                          <button onClick={handleBackToPicker} style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:14,padding:"13px 16px",color:"#64748b",fontWeight:700,fontSize:13,cursor:"pointer"}}>Switch</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── REVIEW ─── */}
+        {tab==="review"&&(
+          <div>
+            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:22,marginBottom:6}}>🔁 Spaced Repetition</div>
+            <div style={{color:"#64748b",fontSize:13,marginBottom:20}}>Cards you got wrong — resurfaced at the perfect time.</div>
+            {srQueue.length===0?(
+              <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:32,textAlign:"center"}}><div style={{fontSize:40,marginBottom:12}}>✨</div><div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Nothing to review yet</div><div style={{color:"#64748b",fontSize:13}}>Get questions wrong and they'll appear here for smart review.</div></div>
+            ):(
+              <div>
+                {dueCount>0&&<div style={{background:"linear-gradient(135deg,#1e1b4b,#2e1065)",border:"1px solid #a78bfa44",borderRadius:16,padding:16,marginBottom:16,display:"flex",alignItems:"center",gap:12}}><span style={{fontSize:28}}>🔁</span><div style={{flex:1}}><div style={{fontWeight:700,fontSize:15,color:"#c4b5fd"}}>{dueCount} cards due now</div><div style={{color:"#94a3b8",fontSize:13}}>Practice → AI will serve these first</div></div><button onClick={()=>{setTab("practice");setActiveSubject(null);}} style={{background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:10,padding:"8px 16px",color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer"}}>Start →</button></div>}
+                {srQueue.map((card,i)=>{const isDue=card.nextReview<=Date.now();const h=Math.max(0,Math.round((card.nextReview-Date.now())/3600000));return(
+                  <div key={i} style={{background:"#0f172a",border:`1px solid ${isDue?"#a78bfa44":"#1e293b"}`,borderRadius:14,padding:"14px 16px",display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+                    <div style={{width:10,height:10,borderRadius:"50%",background:isDue?"#a78bfa":"#334155",boxShadow:isDue?"0 0 8px #a78bfa":"none",flexShrink:0}}/>
+                    <div style={{flex:1}}><div style={{fontWeight:700,fontSize:14}}>{card.skill}</div><div style={{color:"#64748b",fontSize:12}}>{card.subject}</div></div>
+                    <div style={{textAlign:"right",fontSize:12}}>{isDue?<span style={{color:"#a78bfa",fontWeight:700}}>Due now</span>:<span style={{color:"#475569"}}>in {h}h</span>}</div>
+                  </div>
+                );})}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── STATS ─── */}
+        {tab==="stats"&&(
+          <div>
+            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:22,marginBottom:20}}>📊 My Progress</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
+              {[{label:"Questions",value:totalAnswered,icon:"⚡",color:"#3b82f6"},{label:"Accuracy",value:`${overallAccuracy}%`,icon:"🎯",color:"#22c55e"},{label:"Streak",value:`${streak}d`,icon:"🔥",color:"#a78bfa"},{label:"Total XP",value:xp.toLocaleString(),icon:"✨",color:"#a855f7"}].map((s,i)=>(
+                <div key={i} style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:18}}>
+                  <div style={{fontSize:26,marginBottom:6}}>{s.icon}</div>
+                  <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:26,color:s.color}}>{s.value}</div>
+                  <div style={{color:"#64748b",fontSize:13,marginTop:2}}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:20,marginBottom:16}}>
+              <div style={{fontWeight:700,fontSize:15,marginBottom:14}}>Subject Mastery</div>
+              {SUBJECTS.map((sub,i)=>{
+                const subSkillList=SKILLS[sub.id]||[];
+                const attempted=subSkillList.filter(sk=>skillMap[sk]&&skillMap[sk].attempts>0);
+                if(attempted.length===0) return <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:10,color:"#334155"}}><span>{sub.icon} {sub.label}</span><span>Not started</span></div>;
+                const mastery=Math.round(attempted.reduce((a,sk)=>a+getSkillMastery(skillMap[sk]),0)/attempted.length);
+                const c=mastery>=80?"#22c55e":mastery>=60?"#a78bfa":"#ef4444";
+                return (
+                  <div key={i} style={{marginBottom:12}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:5}}><span style={{color:"#cbd5e1"}}>{sub.icon} {sub.label}</span><span style={{color:c,fontWeight:700}}>{mastery}%</span></div>
+                    <div style={{background:"#1e293b",borderRadius:999,height:6}}><div style={{width:`${mastery}%`,height:"100%",borderRadius:999,background:c,boxShadow:`0 0 6px ${c}88`,transition:"width 0.6s ease"}}/></div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{background:"linear-gradient(135deg,#1e1b4b,#0f172a)",border:"1px solid #a78bfa33",borderRadius:16,padding:20}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{fontWeight:700,fontSize:15,color:"#c4b5fd"}}>🤖 AI Diagnosis</div>
+                {isPremium?<button onClick={runDiagnosis} disabled={loadingDiag} style={{background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:10,padding:"7px 14px",color:"#fff",fontWeight:700,fontSize:12,cursor:loadingDiag?"not-allowed":"pointer"}}>{loadingDiag?"Analyzing...":"Run Analysis"}</button>:<button onClick={()=>setTab("premium")} style={{background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:10,padding:"7px 14px",color:"#a78bfa",fontWeight:700,fontSize:12,cursor:"pointer"}}>🔒 Premium</button>}
+              </div>
+              {diagnosisText?<div style={{color:"#94a3b8",fontSize:14,lineHeight:1.7}}>{diagnosisText}</div>:<div style={{color:"#334155",fontSize:13}}>{isPremium?"Answer at least 3 questions then run analysis.":"Upgrade to Premium for AI coaching."}</div>}
+            </div>
+          </div>
+        )}
+
+        {/* ─── PREDICT ─── */}
+        {tab==="predict"&&<ScorePredictor skillMap={skillMap} profile={profile} isPremium={isPremium} setTab={setTab} mockHistory={mockHistory}/>}
+
+        {/* ─── GUIDE ─── */}
+        {tab==="guide"&&<StudyGuidePanel skillMap={skillMap} profile={profile} userName={userName} isPremium={isPremium} setTab={setTab}/>}
+
+        {/* ─── LEADERBOARD ─── */}
+        {tab==="leaderboard"&&(
+          <div>
+            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:22,marginBottom:4}}>🏆 Leaderboard</div>
+            <div style={{color:"#64748b",fontSize:13,marginBottom:16}}>Compete with students globally. XP syncs in real-time.</div>
+
+            {/* Toggle: Global vs Friends */}
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              <button onClick={()=>{setShowFriendLb(false);if(!lbData.length)loadLeaderboard();}} style={{flex:1,background:!showFriendLb?"linear-gradient(135deg,#7c3aed,#a78bfa)":"#0f172a",border:`1px solid ${!showFriendLb?"transparent":"#1e293b"}`,borderRadius:10,padding:"9px",color:!showFriendLb?"#fff":"#94a3b8",fontWeight:700,fontSize:13,cursor:"pointer"}}>🌍 Global</button>
+              <button onClick={()=>{setShowFriendLb(true);loadFriends();}} style={{flex:1,background:showFriendLb?"linear-gradient(135deg,#7c3aed,#a78bfa)":"#0f172a",border:`1px solid ${showFriendLb?"transparent":"#1e293b"}`,borderRadius:10,padding:"9px",color:showFriendLb?"#fff":"#94a3b8",fontWeight:700,fontSize:13,cursor:"pointer"}}>👥 Friends {friends.length>0&&`(${friends.length})`}</button>
+            </div>
+
+            {/* Pending friend requests */}
+            {pendingReqs.length>0&&(
+              <div style={{background:"linear-gradient(135deg,#1e1b4b,#0f172a)",border:"1px solid #a78bfa44",borderRadius:14,padding:16,marginBottom:14}}>
+                <div style={{fontWeight:700,fontSize:13,color:"#c4b5fd",marginBottom:12}}>📬 Friend Requests ({pendingReqs.length})</div>
+                {pendingReqs.map((req,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:i<pendingReqs.length-1?"1px solid #ffffff11":"none"}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:"#f1f5f9"}}>{req.fromName}</div>
+                      <div style={{fontSize:11,color:"#475569"}}>wants to be your study buddy</div>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>handleAcceptFriend(req.from)} style={{background:"#22c55e22",border:"1px solid #22c55e44",borderRadius:8,padding:"5px 12px",color:"#4ade80",fontWeight:700,fontSize:12,cursor:"pointer"}}>✓ Accept</button>
+                      <button onClick={()=>handleDeclineFriend(req.from)} style={{background:"#3b0a0a22",border:"1px solid #ef444433",borderRadius:8,padding:"5px 10px",color:"#f87171",fontWeight:700,fontSize:12,cursor:"pointer"}}>✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add Friend search */}
+            <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:14,padding:14,marginBottom:16}}>
+              <div style={{fontWeight:700,fontSize:13,color:"#94a3b8",marginBottom:10}}>➕ Add Friend</div>
+              <div style={{display:"flex",gap:8}}>
+                <input
+                  value={friendSearch}
+                  onChange={e=>{setFriendSearch(e.target.value);if(!e.target.value.trim()){setSearchResults([]);setFriendMsg("");}}}
+                  onKeyDown={e=>e.key==="Enter"&&handleSearchFriend()}
+                  placeholder="Search by name..."
+                  style={{flex:1,background:"#1e293b",border:"1px solid #334155",borderRadius:10,padding:"9px 12px",color:"#f1f5f9",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}
+                />
+                <button onClick={handleSearchFriend} disabled={friendSearching||!friendSearch.trim()} style={{background:friendSearch.trim()?"linear-gradient(135deg,#7c3aed,#a78bfa)":"#1e293b",border:"none",borderRadius:10,padding:"9px 14px",color:friendSearch.trim()?"#fff":"#334155",fontWeight:700,fontSize:13,cursor:friendSearch.trim()?"pointer":"not-allowed",transition:"all 0.2s"}}>
+                  {friendSearching?"...":"Search"}
+                </button>
+              </div>
+              {friendMsg&&<div style={{marginTop:8,fontSize:12,color:friendMsg.includes("✓")?"#4ade80":"#a78bfa"}}>{friendMsg}</div>}
+              {searchResults.length>0&&(
+                <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:8}}>
+                  {searchResults.map((u,i)=>{
+                    const alreadyFriend = friends.some(f=>f.uid===u.uid);
+                    return (
+                      <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",background:"#1e293b",borderRadius:12}}>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#f1f5f9"}}>{u.name}</div>
+                          <div style={{fontSize:11,color:"#475569"}}>{u.email||"SATxp user"}</div>
+                        </div>
+                        {alreadyFriend
+                          ? <span style={{fontSize:12,color:"#4ade80",fontWeight:700}}>✓ Friends</span>
+                          : <button onClick={()=>handleAddFriend(u.uid)} style={{background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:8,padding:"5px 14px",color:"#a78bfa",fontWeight:700,fontSize:12,cursor:"pointer"}}>Add +</button>
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Friends list (in friends tab) */}
+            {showFriendLb&&friends.length>0&&(
+              <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:14,padding:14,marginBottom:14}}>
+                <div style={{fontWeight:700,fontSize:13,color:"#94a3b8",marginBottom:10}}>👥 Your Friends ({friends.length})</div>
+                {friends.map((f,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:i<friends.length-1?"1px solid #1e293b":"none"}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:"#f1f5f9"}}>{f.name}</div>
+                      <div style={{fontSize:11,color:getRank(f.xp||0).color,fontWeight:600}}>{getRank(f.xp||0).icon} {getRank(f.xp||0).name} · {(f.xp||0).toLocaleString()} XP</div>
+                    </div>
+                    <button onClick={()=>handleRemoveFriend(f.uid)} title="Remove friend" style={{background:"none",border:"1px solid #1e293b",borderRadius:8,padding:"4px 10px",color:"#334155",fontSize:11,cursor:"pointer"}}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Leaderboard list */}
+            {lbLoading&&<div style={{textAlign:"center",padding:32,color:"#64748b",fontSize:13}}>Loading leaderboard...</div>}
+            {!lbLoading&&(()=>{
+              // Build deduplicated list — for friends LB, add self without duplication
+              let list;
+              if(showFriendLb){
+                const seen = new Set();
+                list = [...friends, {uid, name:userName, xp, rankName:getRank(xp).name}]
+                  .filter(p=>{ if(seen.has(p.uid)) return false; seen.add(p.uid); return true; })
+                  .sort((a,b)=>b.xp-a.xp);
+              } else {
+                list = lbData;
+              }
+              if(list.length===0) return (
+                <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:14,padding:24,textAlign:"center",color:"#475569",fontSize:13}}>
+                  {showFriendLb?"No friends yet — add some above to compete!":"No data yet. Be the first to earn XP!"}
+                </div>
+              );
+              return list.map((p,i)=>{
+                const r=getRank(p.xp||0);
+                const isYou=p.uid===uid;
+                return (
+                  <div key={p.uid||i} style={{background:isYou?"linear-gradient(135deg,#a78bfa11,#c084fc11)":"#0f172a",border:isYou?"1px solid #a78bfa44":"1px solid #1e293b",borderRadius:16,padding:"14px 18px",marginBottom:10,display:"flex",alignItems:"center",gap:14}}>
+                    <div style={{width:36,height:36,borderRadius:"50%",flexShrink:0,background:i===0?"linear-gradient(135deg,#fbbf24,#f59e0b)":i===1?"linear-gradient(135deg,#94a3b8,#64748b)":i===2?"linear-gradient(135deg,#c084fc,#7c3aed)":"#1e293b",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:i<3?16:13,color:i<3?"#fff":"#64748b"}}>
+                      {i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}
+                    </div>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,fontSize:14,color:"#f1f5f9"}}>{p.name} {isYou&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:999,padding:"1px 8px",color:"#a78bfa",fontSize:10,fontWeight:700,marginLeft:4}}>YOU</span>}</div>
+                      <div style={{fontSize:12,color:r.color,fontWeight:600,marginTop:2}}>{r.icon} {r.name}</div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontWeight:800,color:isYou?"#c084fc":"#a78bfa",fontFamily:"'Syne',sans-serif",fontSize:16}}>{(p.xp||0).toLocaleString()}</div>
+                      <div style={{fontSize:11,color:"#475569"}}>XP</div>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+            {!showFriendLb&&!lbLoading&&lbData.length===0&&(
+              <button onClick={loadLeaderboard} style={{width:"100%",background:"#0f172a",border:"1px solid #1e293b",borderRadius:12,padding:12,color:"#a78bfa",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:8}}>↺ Refresh Leaderboard</button>
+            )}
+          </div>
+        )}
+
+        {/* ─── PREMIUM ─── */}
+        {tab==="premium"&&(
+          <div>
+            <div style={{textAlign:"center",marginBottom:28}}>
+              <div style={{fontSize:48,marginBottom:12}}>👑</div>
+              <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:28,marginBottom:8}}>Go <span style={{background:"linear-gradient(135deg,#a78bfa,#c084fc)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Premium</span></div>
+              <div style={{color:"#94a3b8",fontSize:15}}>The full AI engine, unlocked.</div>
+            </div>
+            <div style={{background:"linear-gradient(135deg,#1e293b,#0f172a)",border:"1px solid #a78bfa44",borderRadius:24,padding:26,marginBottom:20,position:"relative",overflow:"hidden"}}>
+              <div style={{position:"absolute",top:-20,right:-20,width:120,height:120,borderRadius:"50%",background:"radial-gradient(circle,#a78bfa22,transparent 70%)"}}/>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:22}}><div><div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:38,color:"#a78bfa"}}>$10</div><div style={{color:"#64748b",fontSize:13}}>per month, cancel anytime</div></div><div style={{background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:10,padding:"5px 12px",fontSize:12,color:"#a78bfa",fontWeight:700}}>MOST POPULAR</div></div>
+              <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:22}}>{PREMIUM_FEATURES.map((f,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:10,fontSize:14,color:"#cbd5e1"}}><span style={{color:"#22c55e",fontWeight:900,flexShrink:0}}>✓</span>{f}</div>)}</div>
+              <button onClick={()=>{setIsPremium(true);setTab("practice");if(uid){savePremiumStatus(uid,true);scheduleSave({isPremium:true});}}} style={{width:"100%",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",border:"none",borderRadius:14,padding:"15px",color:"#fff",fontWeight:900,fontSize:17,cursor:"pointer",fontFamily:"'Syne',sans-serif",boxShadow:"0 8px 32px #7c3aed44"}}>🚀 Start Premium — $10/mo</button>
+              <div style={{textAlign:"center",marginTop:10,color:"#475569",fontSize:12}}>No commitment · 7-day free trial · Cancel anytime</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{borderTop:"1px solid #1e293b",padding:"14px 24px",textAlign:"center"}}>
+        <div style={{fontSize:12,color:"#334155"}}>Built by <a href="https://instagram.com/highschoolinvestor" target="_blank" rel="noopener noreferrer" style={{color:"#a78bfa",fontWeight:800,textDecoration:"none",fontFamily:"'Syne',sans-serif"}}>@highschoolinvestor</a></div>
+      </div>
+    </div>
+  );
+}
+
+// ─── PROFILE PERSISTENCE ─────────────────────────────────────────────────────
+async function saveProfileToFirestore(uid, profile) {
+  try {
+    await db.collection("users").doc(uid).set({ onboardingProfile: profile }, { merge: true });
+  } catch(e) { console.warn("Failed to save profile:", e); }
+}
+
+async function loadProfileFromFirestore(uid) {
+  try {
+    const doc = await db.collection("users").doc(uid).get();
+    if (doc.exists && doc.data().onboardingProfile) return doc.data().onboardingProfile;
+    return null;
+  } catch(e) { return null; }
+}
+
+// ─── ROOT ─────────────────────────────────────────────────────────────────────
+function SATxp() {
+  const [screen, setScreen] = useState("loading");
+  const [userName, setUserName] = useState("");
+  const [uid, setUid] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [authError, setAuthError] = useState("");
+
+  // Helper: given a Firebase user, decide whether to show onboarding or go straight to app
+  const handleAuthenticatedUser = async (user) => {
+    const name = user.displayName || user.name || "Student";
+    setUid(user.uid);
+    setUserName(name);
+
+    // Check if they have a saved onboarding profile
+    const [savedProfile, prem] = await Promise.all([
+      loadProfileFromFirestore(user.uid),
+      loadPremiumStatus(user.uid),
+    ]);
+
+    if (savedProfile) {
+      // Returning user — load their saved profile and go straight to app
+      setProfile({ ...savedProfile, isPremium: prem });
+      setScreen("app");
+    } else {
+      // First time — send to onboarding
+      setProfile(null);
+      setScreen("onboard");
+    }
+  };
+
+  // Listen for Firebase auth state changes (handles page refresh / returning users)
+  useEffect(() => {
+    const unsubscribe = fbAuth.onAuthStateChanged(async (user) => {
+      if (user) {
+        await handleAuthenticatedUser(user);
+      } else {
+        setUid(null);
+        setProfile(null);
+        setScreen("landing");
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleGoogle = async () => {
+    setAuthError("");
+    try {
+      const user = await signInWithGoogle();
+      await handleAuthenticatedUser(user);
+    } catch(e) {
+      console.error("Google sign-in failed", e.code || e.message);
+      let msg;
+      if (e.message === "UNAUTHORIZED_DOMAIN") {
+        msg = "❌ This domain isn't authorized in Firebase. Go to Firebase Console → Authentication → Settings → Authorized Domains and add your domain.";
+      } else if (e.message === "OPERATION_NOT_ALLOWED") {
+        msg = "❌ Google sign-in isn't enabled in Firebase. Go to Firebase Console → Authentication → Sign-in method → Enable Google.";
+      } else if (e.code === "auth/popup-blocked") {
+        msg = "🚫 Popup was blocked by your browser. Please allow popups for this site and try again.";
+      } else if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") {
+        msg = "Sign-in cancelled. Try again when ready.";
+      } else if (e.code === "auth/network-request-failed") {
+        msg = "🌐 Network error. Check your internet connection and try again.";
+      } else if (e.code === "auth/internal-error") {
+        msg = "⚠️ Firebase internal error. Check that your Firebase config is correct and Google sign-in is enabled.";
+      } else {
+        msg = `Sign-in failed: ${e.code || e.message}. Check the browser console for details.`;
+      }
+      setAuthError(msg);
+    }
+  };
+
+  const handleLogout = async () => {
+    await fbAuth.signOut();
+    setScreen("landing");
+    setProfile(null);
+    setUid(null);
+  };
+
+  const handleOnboardingComplete = async (p) => {
+    // Go to app immediately — don't block on Firestore saves
+    setProfile({ ...p, isPremium: false });
+    setScreen("app");
+    // Save in background
+    if (uid) {
+      saveProfileToFirestore(uid, p).catch(e => console.warn("Profile save:", e));
+      loadPremiumStatus(uid).then(prem => {
+        if (prem) setProfile(prev => ({ ...prev, isPremium: true }));
+      }).catch(()=>{});
+    }
+  };
+
+  if (screen==="loading") return (
+    <div style={{minHeight:"100vh",background:"#060612",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+      <div style={{width:56,height:56,borderRadius:16,background:"linear-gradient(135deg,#7c3aed,#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>⚡</div>
+      <div style={{fontFamily:"'Syne',sans-serif",fontWeight:900,fontSize:28,color:"#f1f5f9"}}>SAT<span style={{color:"#a78bfa"}}>xp</span></div>
+      <div style={{color:"#475569",fontSize:13}}>Loading...</div>
+    </div>
+  );
+
+  if (screen==="app") return (
+    <MainApp userName={userName} uid={uid} profile={profile} onLogout={handleLogout}/>
+  );
+
+  return (
+    <div style={{minHeight:"100vh",background:"#060612",fontFamily:"'DM Sans',sans-serif",color:"#f1f5f9",position:"relative",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <Orbs/><Particles/>
+      <div style={{position:"relative",zIndex:1,width:"100%",maxWidth:440,padding:"24px 16px",overflowY:"auto",maxHeight:"100vh"}}>
+        {authError&&<div style={{background:"#3b0a0a",border:"1px solid #c084fc44",borderRadius:12,padding:"10px 14px",color:"#fca5a5",fontSize:13,marginBottom:16,textAlign:"center"}}>{authError}</div>}
+        {screen==="landing" && <Landing onLogin={()=>setScreen("login")} onSignup={()=>setScreen("signup")} onGoogle={handleGoogle}/>}
+        {screen==="login"   && <Login   onBack={()=>setScreen("landing")} onLogin={()=>setScreen("app")} onGoogle={handleGoogle} onGoSignup={()=>setScreen("signup")}/>}
+        {screen==="signup"  && <Signup  onBack={()=>setScreen("landing")} onNext={name=>{setUserName(name);setScreen("onboard");}} onGoogle={handleGoogle} onGoLogin={()=>setScreen("login")}/>}
+        {screen==="onboard" && <Onboarding userName={userName} onComplete={handleOnboardingComplete}/>}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(<SATxp/>, document.getElementById("root"));
+</script>
+</body>
+</html>
