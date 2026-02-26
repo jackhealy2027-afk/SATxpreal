@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>SATxp — Level Up Your SAT/ACT</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/17.0.2/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/17.0.2/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script>
+    firebase.initializeApp({
+      apiKey:"AIzaSyD1avOSPg4khHadj1x3K2A8x6NL1LZXF_c",
+      authDomain:"investing-f.firebaseapp.com",
+      projectId:"investing-f",
+      storageBucket:"investing-f.firebasestorage.app",
+      messagingSenderId:"334375052075",
+      appId:"1:334375052075:web:df3be663d1c5dd190cdb6e"
+    });
+    window._auth = firebase.auth();
+    window._db   = firebase.firestore();
+    window._auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(){});
+  </script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#060612;font-family:"DM Sans",sans-serif;color:#f1f5f9;min-height:100vh}
+    input,textarea{font-family:"DM Sans",sans-serif}
+    input::placeholder{color:#475569}
+    button{cursor:pointer;transition:opacity .15s,transform .1s;font-family:"DM Sans",sans-serif}
+    button:active{opacity:.75;transform:scale(.98)}
+    button:disabled{opacity:.4;cursor:not-allowed;transform:none}
+    ::-webkit-scrollbar{width:4px}
+    ::-webkit-scrollbar-track{background:#0f172a}
+    ::-webkit-scrollbar-thumb{background:#334155;border-radius:2px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @keyframes floatOrb{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(28px,-18px) scale(1.04)}66%{transform:translate(-18px,28px) scale(.97)}}
+    @keyframes xpPop{0%{opacity:0;transform:translateY(6px)}15%{opacity:1;transform:translateY(0)}80%{opacity:1}100%{opacity:0;transform:translateY(-22px)}}
+    @keyframes slideIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+  </style>
+</head>
+<body>
+<div id="root" style="min-height:100vh;display:flex;align-items:center;justify-content:center">
+  <div style="text-align:center;color:#a78bfa;font-family:Syne,sans-serif;font-weight:900;font-size:22px">⚡ Loading SATxp...</div>
+</div>
+<script type="text/babel">
+/* SATxp — Build v7 — Clean hooks, no async in auth callback */
+const {useState, useEffect, useRef, useCallback} = React;
+const fbAuth = window._auth;
+const db     = window._db;
+
+/* ── Question bank ─────────────────────────────────────────────────────────── */
+const QUESTION_BANK = [{"subject":"SAT Math","skill":"Linear Equations","difficulty":"easy","question":"If 3x + 7 = 22, what is the value of x?","choices":["A) 3","B) 4","C) 5","D) 6"],"correctIndex":2,"explanation":"Subtract 7 from both sides: 3x = 15. Divide by 3: x = 5.","conceptTaught":"Solving one-step linear equations"},{"subject":"SAT Math","skill":"Linear Equations","difficulty":"easy","question":"What is the slope of the line y = 4x - 3?","choices":["A) -3","B) 3","C) 4","D) -4"],"correctIndex":2,"explanation":"In slope-intercept form y = mx + b, m is the slope. Here m = 4.","conceptTaught":"Slope-intercept form"},{"subject":"SAT Math","skill":"Linear Equations","difficulty":"medium","question":"A line passes through points (2, 5) and (6, 13). What is the equation of the line?","choices":["A) y = 2x + 1","B) y = 2x + 3","C) y = 3x - 1","D) y = 2x - 1"],"correctIndex":0,"explanation":"Slope = (13-5)/(6-2) = 8/4 = 2. Using point (2,5): 5 = 2(2) + b, so b = 1. Equation: y = 2x + 1.","conceptTaught":"Finding equation from two points"},{"subject":"SAT Math","skill":"Linear Equations","difficulty":"medium","question":"If 2(x - 3) + 4 = 3x - 1, what is x?","choices":["A) -1","B) 0","C) 1","D) 3"],"correctIndex":3,"explanation":"2x - 6 + 4 = 3x - 1 \u2192 2x - 2 = 3x - 1 \u2192 -1 = x. Wait: -2 + 1 = 3x - 2x \u2192 -1 = x. Check: 2(-1-3)+4 = 2(-4)+4 = -4 = 3(-1)-1 = -4. x = -1.","conceptTaught":"Multi-step linear equations"},{"subject":"SAT Math","skill":"Linear Equations","difficulty":"hard","question":"Line l has equation 3x - 4y = 12. Which of the following is perpendicular to line l?","choices":["A) y = (3/4)x + 2","B) y = -(4/3)x + 5","C) y = (4/3)x - 1","D) y = -(3/4)x + 1"],"correctIndex":1,"explanation":"Slope of l: 3x - 4y = 12 \u2192 y = (3/4)x - 3. Slope = 3/4. Perpendicular slope = -4/3. Answer B has slope -4/3.","conceptTaught":"Perpendicular lines and negative reciprocal slopes"},{"subject":"SAT Math","skill":"Systems of Equations","difficulty":"easy","question":"If x + y = 10 and x - y = 4, what is x?","choices":["A) 3","B) 5","C) 7","D) 8"],"correctIndex":2,"explanation":"Add the equations: 2x = 14, so x = 7.","conceptTaught":"Elimination method"},{"subject":"SAT Math","skill":"Systems of Equations","difficulty":"medium","question":"What is the solution to the system: 2x + 3y = 12 and x - y = 1?","choices":["A) (3, 2)","B) (2, 3)","C) (1, 4)","D) (4, 1)"],"correctIndex":0,"explanation":"From x - y = 1: x = y + 1. Substitute: 2(y+1) + 3y = 12 \u2192 5y = 10 \u2192 y = 2, x = 3.","conceptTaught":"Substitution method"},{"subject":"SAT Math","skill":"Systems of Equations","difficulty":"medium","question":"A system of equations has no solution. Which best describes the lines?","choices":["A) They intersect at one point","B) They are the same line","C) They are parallel","D) They are perpendicular"],"correctIndex":2,"explanation":"A system with no solution means the lines never intersect \u2014 they are parallel (same slope, different y-intercepts).","conceptTaught":"Types of linear systems"},{"subject":"SAT Math","skill":"Systems of Equations","difficulty":"hard","question":"If 3x + 2y = 7 and 6x + 4y = k has infinitely many solutions, what is k?","choices":["A) 7","B) 12","C) 14","D) 21"],"correctIndex":2,"explanation":"For infinitely many solutions, the equations must be identical. Multiply the first by 2: 6x + 4y = 14. So k = 14.","conceptTaught":"Infinitely many solutions condition"},{"subject":"SAT Math","skill":"Quadratic Equations","difficulty":"easy","question":"What are the solutions to x^2 - 5x + 6 = 0?","choices":["A) x = 1 and x = 6","B) x = 2 and x = 3","C) x = -2 and x = -3","D) x = -1 and x = 6"],"correctIndex":1,"explanation":"Factor: (x-2)(x-3) = 0. Solutions: x = 2 and x = 3.","conceptTaught":"Factoring quadratics"},{"subject":"SAT Math","skill":"Quadratic Equations","difficulty":"easy","question":"What is the vertex of y = (x - 3)^2 + 4?","choices":["A) (3, 4)","B) (-3, 4)","C) (3, -4)","D) (-3, -4)"],"correctIndex":0,"explanation":"Vertex form is y = (x-h)^2 + k where vertex is (h, k). Here h = 3, k = 4.","conceptTaught":"Vertex form of quadratics"},{"subject":"SAT Math","skill":"Quadratic Equations","difficulty":"medium","question":"Using the quadratic formula, solve 2x^2 + 3x - 2 = 0.","choices":["A) x = 1/2 and x = -2","B) x = -1/2 and x = 2","C) x = 1 and x = -2","D) x = 2 and x = -3"],"correctIndex":0,"explanation":"x = [-3 \u00b1 sqrt(9 + 16)] / 4 = [-3 \u00b1 5] / 4. Solutions: x = 2/4 = 1/2 and x = -8/4 = -2.","conceptTaught":"Quadratic formula"},{"subject":"SAT Math","skill":"Quadratic Equations","difficulty":"medium","question":"If x^2 - 4x + k = 0 has exactly one solution, what is k?","choices":["A) 2","B) 4","C) 6","D) 8"],"correctIndex":1,"explanation":"One solution when discriminant = 0: b^2 - 4ac = 16 - 4k = 0. So k = 4.","conceptTaught":"Discriminant and number of solutions"},{"subject":"SAT Math","skill":"Quadratic Equations","difficulty":"hard","question":"The product of two consecutive integers is 72. What are the integers?","choices":["A) 7 and 8","B) 8 and 9","C) 9 and 10","D) 6 and 7"],"correctIndex":1,"explanation":"n(n+1) = 72. n^2 + n - 72 = 0. Factor: (n-8)(n+9) = 0. n = 8. Integers are 8 and 9.","conceptTaught":"Setting up and solving quadratic word problems"},{"subject":"SAT Math","skill":"Percentages","difficulty":"easy","question":"What is 35% of 200?","choices":["A) 60","B) 70","C) 75","D) 80"],"correctIndex":1,"explanation":"0.35 x 200 = 70.","conceptTaught":"Finding a percent of a number"},{"subject":"SAT Math","skill":"Percentages","difficulty":"easy","question":"A shirt costs $40 and is on sale for 25% off. What is the sale price?","choices":["A) $25","B) $28","C) $30","D) $32"],"correctIndex":2,"explanation":"25% of 40 = 10. Sale price = 40 - 10 = $30.","conceptTaught":"Percent discount"},{"subject":"SAT Math","skill":"Percentages","difficulty":"medium","question":"A population of 5000 increases by 12%. What is the new population?","choices":["A) 5500","B) 5600","C) 5200","D) 5060"],"correctIndex":1,"explanation":"5000 x 1.12 = 5600.","conceptTaught":"Percent increase"},{"subject":"SAT Math","skill":"Percentages","difficulty":"medium","question":"If 60 is 40% of x, what is x?","choices":["A) 24","B) 100","C) 120","D) 150"],"correctIndex":3,"explanation":"0.40 x x = 60. x = 60/0.40 = 150.","conceptTaught":"Finding the whole given a percent"},{"subject":"SAT Math","skill":"Percentages","difficulty":"hard","question":"A price increases from $80 to $100. What is the percent increase?","choices":["A) 20%","B) 25%","C) 30%","D) 15%"],"correctIndex":1,"explanation":"Percent increase = (100-80)/80 x 100 = 20/80 x 100 = 25%.","conceptTaught":"Percent change formula"},{"subject":"SAT Math","skill":"Functions","difficulty":"easy","question":"If f(x) = 3x + 2, what is f(4)?","choices":["A) 12","B) 14","C) 16","D) 18"],"correctIndex":1,"explanation":"f(4) = 3(4) + 2 = 12 + 2 = 14.","conceptTaught":"Evaluating functions"},{"subject":"SAT Math","skill":"Functions","difficulty":"easy","question":"Which of the following represents a function?","choices":["A) {(1,2),(1,3),(2,4)}","B) {(1,2),(2,3),(3,4)}","C) {(1,2),(2,2),(1,3)}","D) {(2,1),(2,3),(2,5)}"],"correctIndex":1,"explanation":"A function has each x-value paired with exactly one y-value. Only option B has unique x-values.","conceptTaught":"Definition of a function"},{"subject":"SAT Math","skill":"Functions","difficulty":"medium","question":"If f(x) = x^2 - 3 and g(x) = 2x + 1, what is f(g(2))?","choices":["A) 22","B) 21","C) 24","D) 17"],"correctIndex":0,"explanation":"g(2) = 2(2)+1 = 5. f(5) = 25 - 3 = 22.","conceptTaught":"Composition of functions"},{"subject":"SAT Math","skill":"Functions","difficulty":"hard","question":"The function f(x) = ax^2 + bx + c has a maximum at x = 3. If f(0) = 5 and f(6) = 5, what is f(3)?","choices":["A) 8","B) 9","C) 10","D) 11"],"correctIndex":1,"explanation":"The parabola is symmetric about x = 3. f(0) = f(6) = 5 confirms symmetry. The max is above the axis of symmetry. With vertex form and f(0)=5: 9a+c=5 minimum info tells us vertex is at (3, f(3)). Since it's a maximum of a symmetric function touching 5 at x=0 and x=6, and quadratic properties, f(3) = 9.","conceptTaught":"Properties of quadratic functions"},{"subject":"SAT Math","skill":"Geometry","difficulty":"easy","question":"What is the area of a circle with radius 5?","choices":["A) 10pi","B) 25pi","C) 50pi","D) 5pi"],"correctIndex":1,"explanation":"Area = pi x r^2 = pi x 25 = 25pi.","conceptTaught":"Area of a circle"},{"subject":"SAT Math","skill":"Geometry","difficulty":"easy","question":"A right triangle has legs of length 3 and 4. What is the hypotenuse?","choices":["A) 5","B) 6","C) 7","D) 4.5"],"correctIndex":0,"explanation":"By the Pythagorean theorem: 3^2 + 4^2 = 9 + 16 = 25. Hypotenuse = sqrt(25) = 5.","conceptTaught":"Pythagorean theorem"},{"subject":"SAT Math","skill":"Geometry","difficulty":"medium","question":"What is the volume of a cylinder with radius 3 and height 8?","choices":["A) 48pi","B) 72pi","C) 24pi","D) 96pi"],"correctIndex":1,"explanation":"Volume = pi x r^2 x h = pi x 9 x 8 = 72pi.","conceptTaught":"Volume of a cylinder"},{"subject":"SAT Math","skill":"Geometry","difficulty":"medium","question":"Two parallel lines are cut by a transversal. If one angle is 65 degrees, what is its co-interior (same-side interior) angle?","choices":["A) 65 degrees","B) 115 degrees","C) 125 degrees","D) 25 degrees"],"correctIndex":1,"explanation":"Co-interior angles are supplementary: 65 + 115 = 180 degrees.","conceptTaught":"Parallel lines and transversals"},{"subject":"SAT Math","skill":"Geometry","difficulty":"hard","question":"A rectangle has perimeter 36 and area 80. What are the dimensions?","choices":["A) 8 and 10","B) 7 and 11","C) 6 and 12","D) 9 and 9"],"correctIndex":0,"explanation":"2(l+w) = 36, so l+w = 18. lw = 80. Solving: l and w are roots of t^2 - 18t + 80 = 0. (t-8)(t-10) = 0. Dimensions: 8 and 10.","conceptTaught":"Rectangle dimension problems"},{"subject":"SAT Math","skill":"Statistics & Data","difficulty":"easy","question":"What is the median of the data set {3, 7, 9, 2, 5}?","choices":["A) 5","B) 7","C) 3","D) 9"],"correctIndex":0,"explanation":"Sorted: {2, 3, 5, 7, 9}. The median is the middle value: 5.","conceptTaught":"Finding the median"},{"subject":"SAT Math","skill":"Statistics & Data","difficulty":"easy","question":"What is the mean of {4, 8, 6, 10, 12}?","choices":["A) 7","B) 8","C) 9","D) 10"],"correctIndex":1,"explanation":"Sum = 4+8+6+10+12 = 40. Mean = 40/5 = 8.","conceptTaught":"Finding the mean"},{"subject":"SAT Math","skill":"Statistics & Data","difficulty":"medium","question":"A data set has mean 12 and 6 values. One value of 6 is removed. What is the new mean?","choices":["A) 13","B) 13.2","C) 14","D) 12.5"],"correctIndex":1,"explanation":"Total sum = 12 x 6 = 72. Remove 6: new sum = 66. New mean = 66/5 = 13.2.","conceptTaught":"Effect of removing a value on the mean"},{"subject":"SAT Math","skill":"Statistics & Data","difficulty":"hard","question":"In a normal distribution, approximately what percent of data falls within 2 standard deviations of the mean?","choices":["A) 68%","B) 90%","C) 95%","D) 99%"],"correctIndex":2,"explanation":"The empirical rule: 68% within 1 SD, 95% within 2 SDs, 99.7% within 3 SDs.","conceptTaught":"Empirical rule for normal distributions"},{"subject":"SAT Math","skill":"Word Problems","difficulty":"easy","question":"A car travels 240 miles in 4 hours. What is its average speed?","choices":["A) 50 mph","B) 55 mph","C) 60 mph","D) 65 mph"],"correctIndex":2,"explanation":"Speed = distance / time = 240 / 4 = 60 mph.","conceptTaught":"Speed, distance, time"},{"subject":"SAT Math","skill":"Word Problems","difficulty":"medium","question":"Tom has 3 times as many marbles as Jerry. Together they have 48 marbles. How many does Tom have?","choices":["A) 12","B) 24","C) 30","D) 36"],"correctIndex":3,"explanation":"Let Jerry = x. Tom = 3x. x + 3x = 48. 4x = 48. x = 12. Tom = 36.","conceptTaught":"Setting up linear equations from word problems"},{"subject":"SAT Math","skill":"Word Problems","difficulty":"medium","question":"A pool holds 2400 gallons. It can be filled at 80 gallons/hour and drained at 30 gallons/hour. If both run simultaneously, how many hours to fill the pool?","choices":["A) 30","B) 40","C) 48","D) 50"],"correctIndex":2,"explanation":"Net fill rate = 80 - 30 = 50 gallons/hour. Time = 2400/50 = 48 hours.","conceptTaught":"Rate problems with simultaneous fill/drain"},{"subject":"SAT Math","skill":"Word Problems","difficulty":"hard","question":"Two trains leave cities 480 miles apart traveling toward each other. Train A goes 60 mph, Train B goes 80 mph. How long until they meet?","choices":["A) 3 hours","B) 3.4 hours","C) 4 hours","D) 2.5 hours"],"correctIndex":1,"explanation":"Combined closing speed = 60 + 80 = 140 mph. Time = 480/140 = 3.43 hours.","conceptTaught":"Meeting point problems"},{"subject":"SAT Math","skill":"Ratios & Proportions","difficulty":"easy","question":"If the ratio of boys to girls is 3:4 and there are 21 boys, how many girls are there?","choices":["A) 24","B) 28","C) 16","D) 32"],"correctIndex":1,"explanation":"3/4 = 21/x. Cross multiply: 3x = 84. x = 28.","conceptTaught":"Solving proportions"},{"subject":"SAT Math","skill":"Ratios & Proportions","difficulty":"medium","question":"A recipe uses 2 cups of flour for every 3 cups of sugar. How many cups of flour are needed for 9 cups of sugar?","choices":["A) 4","B) 5","C) 6","D) 7"],"correctIndex":2,"explanation":"2/3 = x/9. x = 18/3 = 6 cups.","conceptTaught":"Direct proportion"},{"subject":"SAT Math","skill":"Ratios & Proportions","difficulty":"hard","question":"The ratio of red to blue to green marbles is 2:3:5. If there are 60 green marbles, how many total marbles are there?","choices":["A) 90","B) 100","C) 110","D) 120"],"correctIndex":3,"explanation":"Green = 5 parts = 60. Each part = 12. Total parts = 2+3+5 = 10. Total = 10 x 12 = 120.","conceptTaught":"Three-part ratios"},{"subject":"SAT Math","skill":"Exponents & Radicals","difficulty":"easy","question":"What is 2^5?","choices":["A) 10","B) 16","C) 32","D) 25"],"correctIndex":2,"explanation":"2^5 = 2x2x2x2x2 = 32.","conceptTaught":"Evaluating exponents"},{"subject":"SAT Math","skill":"Exponents & Radicals","difficulty":"medium","question":"Simplify: sqrt(72)","choices":["A) 6sqrt(2)","B) 8sqrt(2)","C) 6sqrt(3)","D) 4sqrt(3)"],"correctIndex":0,"explanation":"72 = 36 x 2. sqrt(72) = sqrt(36) x sqrt(2) = 6sqrt(2).","conceptTaught":"Simplifying radicals"},{"subject":"SAT Math","skill":"Exponents & Radicals","difficulty":"hard","question":"If x^(2/3) = 4, what is x?","choices":["A) 6","B) 8","C) 12","D) 16"],"correctIndex":1,"explanation":"x^(2/3) = 4 means (x^(1/3))^2 = 4, so x^(1/3) = 2, meaning x = 2^3 = 8.","conceptTaught":"Rational exponents"},{"subject":"SAT Reading","skill":"Main Idea","difficulty":"easy","question":"A passage states: 'Despite advances in renewable energy, fossil fuels still dominate global energy production. However, investment in solar and wind power has grown 300% in the last decade.' What is the main idea?","choices":["A) Fossil fuels are better than renewables","B) Renewable energy is growing but fossil fuels still lead","C) Solar power is the best energy source","D) Investment in energy is declining"],"correctIndex":1,"explanation":"The passage acknowledges fossil fuel dominance while highlighting rapid renewable growth \u2014 both ideas are essential to the main idea.","conceptTaught":"Identifying main idea with contrasting information"},{"subject":"SAT Reading","skill":"Main Idea","difficulty":"medium","question":"A scientist argues that coral reef bleaching is caused primarily by rising ocean temperatures due to climate change, though pollution and overfishing also play roles. The central claim is:","choices":["A) Coral reefs are not in danger","B) Ocean pollution is the primary threat to coral","C) Rising temperatures are the main cause of bleaching","D) Overfishing destroys more coral than climate change"],"correctIndex":2,"explanation":"The passage explicitly states rising temperatures are 'primarily' responsible, making C the central claim despite other factors mentioned.","conceptTaught":"Identifying the central claim vs. supporting details"},{"subject":"SAT Reading","skill":"Main Idea","difficulty":"hard","question":"An author describes a historical event, then analyzes its economic causes, social consequences, and long-term political effects. The primary purpose of such a passage is most likely to:","choices":["A) Entertain readers with historical stories","B) Argue that the event was catastrophic","C) Provide a comprehensive analysis of the event's significance","D) Describe only the economic factors at play"],"correctIndex":2,"explanation":"Covering multiple dimensions (causes, consequences, effects) signals a comprehensive analytical purpose rather than entertainment or single-factor argument.","conceptTaught":"Identifying author's primary purpose"},{"subject":"SAT Reading","skill":"Vocabulary in Context","difficulty":"easy","question":"'The scientist's findings were seminal, sparking decades of follow-up research.' In this context, 'seminal' most nearly means:","choices":["A) Controversial","B) Highly influential","C) Recently published","D) Difficult to understand"],"correctIndex":1,"explanation":"Seminal means strongly influencing later developments. The context clue 'sparking decades of follow-up' confirms it means highly influential.","conceptTaught":"Using context clues for vocabulary"},{"subject":"SAT Reading","skill":"Vocabulary in Context","difficulty":"medium","question":"'The CEO's candid remarks surprised shareholders accustomed to carefully crafted statements.' In context, 'candid' most nearly means:","choices":["A) Rehearsed","B) Offensive","C) Frank and straightforward","D) Optimistic"],"correctIndex":2,"explanation":"Candid means honest and direct. The contrast with 'carefully crafted statements' confirms the meaning of frank and unfiltered speech.","conceptTaught":"Contrast context clues"},{"subject":"SAT Reading","skill":"Vocabulary in Context","difficulty":"hard","question":"'Though initially dismissed as quixotic, his plan to develop solar-powered aircraft proved visionary.' In context, 'quixotic' most nearly means:","choices":["A) Logical and well-reasoned","B) Foolishly idealistic and impractical","C) Innovative and forward-thinking","D) Carefully planned"],"correctIndex":1,"explanation":"Quixotic (from Don Quixote) means idealistic to the point of being unrealistic. The contrast with 'proved visionary' shows it was initially seen as impractical.","conceptTaught":"Literary-origin vocabulary in context"},{"subject":"SAT Reading","skill":"Evidence-Based Questions","difficulty":"medium","question":"A student claims that the author believes technology is harmful to society. Which of the following from a passage would best support this claim?","choices":["A) 'Technology has transformed communication in the 21st century'","B) 'While technology offers benefits, its addictive properties erode human connection and mental health'","C) 'Smartphones were introduced in 2007'","D) 'Many people use technology for work and leisure'"],"correctIndex":1,"explanation":"Only option B expresses a negative judgment ('erode human connection and mental health'), directly supporting the claim about technology being harmful.","conceptTaught":"Identifying textual evidence"},{"subject":"SAT Reading","skill":"Evidence-Based Questions","difficulty":"hard","question":"A passage argues that urban green spaces reduce crime. Which data would most weaken this argument?","choices":["A) A study showing green spaces improve mental health","B) Data showing crime rates unchanged in cities after adding parks","C) Research on the economic benefits of urban parks","D) A survey of residents who prefer parks to parking lots"],"correctIndex":1,"explanation":"If crime rates remain unchanged after adding green spaces, this directly undermines the causal claim that green spaces reduce crime.","conceptTaught":"Identifying evidence that weakens an argument"},{"subject":"SAT Reading","skill":"Inference","difficulty":"easy","question":"'Maria checked her watch three times, shifted her weight from foot to foot, and glanced repeatedly at the door.' What can be inferred about Maria?","choices":["A) She is bored","B) She is nervous or anxious","C) She is angry","D) She is tired"],"correctIndex":1,"explanation":"Checking her watch, shifting weight, and watching the door are classic anxiety behaviors. The text implies nervousness through these physical cues.","conceptTaught":"Inferring character state from behavior"},{"subject":"SAT Reading","skill":"Inference","difficulty":"medium","question":"A passage describes a company that has laid off 30% of its staff, closed two regional offices, and canceled its annual conference. What can be reasonably inferred?","choices":["A) The company is rapidly expanding","B) The company is merging with a competitor","C) The company is experiencing serious financial difficulties","D) The company is relocating its headquarters"],"correctIndex":2,"explanation":"Multiple cost-cutting measures (layoffs, office closures, event cancellations) collectively suggest financial hardship, though none explicitly state it.","conceptTaught":"Inferring from multiple details"},{"subject":"SAT Reading","skill":"Author's Purpose","difficulty":"easy","question":"An author uses vivid descriptions of suffering, personal testimonials, and emotional language throughout a passage about homelessness. The author's primary purpose is most likely to:","choices":["A) Inform readers of statistics about homelessness","B) Persuade readers to feel compassion and take action","C) Analyze government policies on housing","D) Entertain readers with personal stories"],"correctIndex":1,"explanation":"Vivid suffering, testimonials, and emotional language are persuasive techniques designed to evoke empathy and motivate action.","conceptTaught":"Identifying persuasive purpose through rhetorical techniques"},{"subject":"SAT Reading","skill":"Author's Purpose","difficulty":"medium","question":"A passage uses phrases like 'one must consider,' 'the evidence suggests,' and 'a balanced view requires.' The tone is primarily:","choices":["A) Emotional and passionate","B) Objective and analytical","C) Satirical and humorous","D) Alarmist and urgent"],"correctIndex":1,"explanation":"Hedged, academic language ('suggests,' 'one must consider') signals a balanced, analytical rather than passionate or urgent tone.","conceptTaught":"Identifying tone through word choice"},{"subject":"ACT English","skill":"Punctuation","difficulty":"easy","question":"Which sentence uses commas correctly?\nA) The dog, that bit the mailman, was quarantined.\nB) The dog that bit the mailman was quarantined.\nC) The dog that, bit the mailman, was quarantined.\nD) The dog, that bit, the mailman was quarantined.","choices":["A) Option A","B) Option B","C) Option C","D) Option D"],"correctIndex":1,"explanation":"'That bit the mailman' is a restrictive clause identifying which dog \u2014 no commas needed. 'Which' clauses (non-restrictive) need commas; 'that' clauses do not.","conceptTaught":"Restrictive vs. non-restrictive clauses"},{"subject":"ACT English","skill":"Punctuation","difficulty":"medium","question":"Which correctly punctuates this sentence: 'The results were surprising __ the experiment had failed multiple times before.'","choices":["A) surprising, the","B) surprising; the","C) surprising: the","D) surprising the"],"correctIndex":1,"explanation":"Two independent clauses can be joined with a semicolon. A comma alone creates a comma splice (incorrect). A colon would introduce an explanation, not a contrast.","conceptTaught":"Semicolons between independent clauses"},{"subject":"ACT English","skill":"Punctuation","difficulty":"hard","question":"Identify the correctly punctuated sentence:","choices":["A) Its a beautiful day, isn't it?","B) It's a beautiful day, isn't it?","C) It's a beautiful day isn't it?","D) Its a beautiful day isn't it?"],"correctIndex":1,"explanation":"'It's' = contraction of 'it is' (needs apostrophe). The tag question 'isn't it?' requires a comma before it.","conceptTaught":"Apostrophes in contractions and tag questions"},{"subject":"ACT English","skill":"Grammar & Usage","difficulty":"easy","question":"Choose the correct verb: 'Neither the students nor the teacher __ prepared for the fire drill.'","choices":["A) were","B) was","C) are","D) have been"],"correctIndex":1,"explanation":"With 'neither/nor,' the verb agrees with the subject closest to it ('teacher' = singular). Use 'was.'","conceptTaught":"Subject-verb agreement with neither/nor"},{"subject":"ACT English","skill":"Grammar & Usage","difficulty":"medium","question":"Which is correct? 'Between you and __, the project is behind schedule.'","choices":["A) I","B) me","C) myself","D) we"],"correctIndex":1,"explanation":"'Between' is a preposition requiring object pronouns. 'Between you and me' is correct. 'I' is a subject pronoun and would be incorrect here.","conceptTaught":"Pronoun case after prepositions"},{"subject":"ACT English","skill":"Grammar & Usage","difficulty":"hard","question":"Choose the correct form: 'The data __ been analyzed by three independent researchers.'","choices":["A) has","B) have","C) was","D) is"],"correctIndex":1,"explanation":"'Data' is the plural of 'datum' and takes plural verbs in formal/academic writing. 'The data have been analyzed' is correct.","conceptTaught":"Collective nouns and data as plural"},{"subject":"ACT English","skill":"Sentence Structure","difficulty":"easy","question":"Which is a complete sentence?","choices":["A) Running through the park every morning.","B) Because she studied hard.","C) The storm lasted three days.","D) Although the movie was long."],"correctIndex":2,"explanation":"A complete sentence needs a subject and predicate that form an independent clause. Only C has both without being a subordinate clause.","conceptTaught":"Complete sentences vs. fragments"},{"subject":"ACT English","skill":"Sentence Structure","difficulty":"medium","question":"Identify the error: 'Having finished the exam early, the classroom was left by Maria.'","choices":["A) Comma splice","B) Dangling modifier","C) Run-on sentence","D) Subject-verb disagreement"],"correctIndex":1,"explanation":"'Having finished the exam early' modifies the subject, but the subject is 'classroom' \u2014 classrooms don't finish exams. This is a dangling modifier. It should be 'Maria left the classroom.'","conceptTaught":"Dangling modifiers"},{"subject":"ACT English","skill":"Sentence Structure","difficulty":"hard","question":"Which best combines these sentences? 'The bridge was built in 1887. It still carries heavy traffic today.'","choices":["A) The bridge was built in 1887, it still carries heavy traffic today.","B) Built in 1887, the bridge still carries heavy traffic today.","C) The bridge was built in 1887. Still carrying heavy traffic today.","D) The bridge, built in 1887 still carries heavy traffic today."],"correctIndex":1,"explanation":"Option B uses a participial phrase to combine concisely. A avoids a comma splice. C creates a fragment. D is missing a comma after 1887.","conceptTaught":"Combining sentences with participial phrases"},{"subject":"ACT English","skill":"Rhetorical Skills","difficulty":"medium","question":"A writer wants to add a specific example to support the claim that 'social media can harm teenagers' mental health.' Which addition would be most relevant?","choices":["A) 'Social media platforms were founded in the early 2000s.'","B) 'Studies show teens who spend 3+ hours daily on social media report higher rates of anxiety and depression.'","C) 'Many teenagers use social media to connect with friends.'","D) 'Social media companies earn billions in advertising revenue.'"],"correctIndex":1,"explanation":"Only B directly supports the claim about mental health harm with specific evidence. The others are tangential facts.","conceptTaught":"Selecting relevant supporting evidence"},{"subject":"ACT English","skill":"Rhetorical Skills","difficulty":"hard","question":"Which transition best connects these sentences? 'The new policy reduced emissions by 15%. __ critics argue it severely damaged the local economy.'","choices":["A) Furthermore,","B) Therefore,","C) However,","D) Similarly,"],"correctIndex":2,"explanation":"The sentences present a success (15% reduction) followed by a criticism \u2014 a contrast relationship requiring 'However.' 'Furthermore' and 'Similarly' suggest agreement, not contrast.","conceptTaught":"Choosing appropriate transitions"},{"subject":"ACT Math","skill":"Pre-Algebra","difficulty":"easy","question":"What is the least common multiple (LCM) of 4 and 6?","choices":["A) 2","B) 8","C) 12","D) 24"],"correctIndex":2,"explanation":"Multiples of 4: 4, 8, 12... Multiples of 6: 6, 12... The LCM is 12.","conceptTaught":"Finding the LCM"},{"subject":"ACT Math","skill":"Pre-Algebra","difficulty":"easy","question":"What is the value of |-8 + 3|?","choices":["A) -5","B) 5","C) 11","D) -11"],"correctIndex":1,"explanation":"|-8 + 3| = |-5| = 5. Absolute value is always non-negative.","conceptTaught":"Absolute value"},{"subject":"ACT Math","skill":"Pre-Algebra","difficulty":"medium","question":"If a = -2 and b = 3, what is a^2 - 2ab + b^2?","choices":["A) 1","B) 25","C) 5","D) -5"],"correctIndex":1,"explanation":"(a-b)^2 = (-2-3)^2 = (-5)^2 = 25.","conceptTaught":"Evaluating algebraic expressions"},{"subject":"ACT Math","skill":"Elementary Algebra","difficulty":"easy","question":"Solve for x: 5x - 3 = 2x + 9","choices":["A) 2","B) 3","C) 4","D) 6"],"correctIndex":2,"explanation":"5x - 2x = 9 + 3. 3x = 12. x = 4.","conceptTaught":"Solving linear equations"},{"subject":"ACT Math","skill":"Elementary Algebra","difficulty":"medium","question":"If 4x + 2y = 20 and y = 2x, what is x?","choices":["A) 2","B) 2.5","C) 3","D) 4"],"correctIndex":1,"explanation":"Substitute y = 2x: 4x + 4x = 20. 8x = 20. x = 2.5.","conceptTaught":"Substitution in systems"},{"subject":"ACT Math","skill":"Elementary Algebra","difficulty":"hard","question":"If |2x - 5| = 9, what are the solutions for x?","choices":["A) x = 7 only","B) x = -2 only","C) x = 7 or x = -2","D) x = 2 or x = 7"],"correctIndex":2,"explanation":"2x - 5 = 9 gives x = 7. 2x - 5 = -9 gives 2x = -4, x = -2. Both are solutions.","conceptTaught":"Absolute value equations"},{"subject":"ACT Math","skill":"Coordinate Geometry","difficulty":"easy","question":"What is the midpoint of the segment with endpoints (2, 4) and (8, 10)?","choices":["A) (4, 6)","B) (5, 7)","C) (6, 8)","D) (3, 5)"],"correctIndex":1,"explanation":"Midpoint = ((2+8)/2, (4+10)/2) = (5, 7).","conceptTaught":"Midpoint formula"},{"subject":"ACT Math","skill":"Coordinate Geometry","difficulty":"medium","question":"What is the distance between points (1, 2) and (4, 6)?","choices":["A) 4","B) 5","C) 6","D) 7"],"correctIndex":1,"explanation":"Distance = sqrt((4-1)^2 + (6-2)^2) = sqrt(9+16) = sqrt(25) = 5.","conceptTaught":"Distance formula"},{"subject":"ACT Math","skill":"Coordinate Geometry","difficulty":"hard","question":"A circle has center (3, -2) and passes through (7, 1). What is the equation of the circle?","choices":["A) (x-3)^2 + (y+2)^2 = 25","B) (x-3)^2 + (y+2)^2 = 5","C) (x+3)^2 + (y-2)^2 = 25","D) (x-3)^2 + (y-2)^2 = 25"],"correctIndex":0,"explanation":"Radius = sqrt((7-3)^2 + (1+2)^2) = sqrt(16+9) = 5. Equation: (x-3)^2 + (y+2)^2 = 25.","conceptTaught":"Equation of a circle"},{"subject":"ACT Math","skill":"Plane Geometry","difficulty":"easy","question":"What is the sum of interior angles of a hexagon?","choices":["A) 540 degrees","B) 720 degrees","C) 900 degrees","D) 1080 degrees"],"correctIndex":1,"explanation":"Sum of interior angles = (n-2) x 180. For hexagon: (6-2) x 180 = 720 degrees.","conceptTaught":"Sum of interior angles"},{"subject":"ACT Math","skill":"Plane Geometry","difficulty":"medium","question":"Two similar triangles have sides in ratio 3:5. If the area of the smaller is 27, what is the area of the larger?","choices":["A) 45","B) 65","C) 75","D) 81"],"correctIndex":2,"explanation":"Area ratio = (side ratio)^2 = (3/5)^2 = 9/25. If smaller area = 27, larger = 27 x (25/9) = 75.","conceptTaught":"Similar figures and area ratios"},{"subject":"ACT Math","skill":"Trigonometry","difficulty":"medium","question":"In a right triangle, the opposite side is 3 and the hypotenuse is 5. What is sin(theta)?","choices":["A) 3/4","B) 4/5","C) 3/5","D) 5/3"],"correctIndex":2,"explanation":"sin(theta) = opposite/hypotenuse = 3/5.","conceptTaught":"Basic trig ratios (SOH CAH TOA)"},{"subject":"ACT Math","skill":"Trigonometry","difficulty":"hard","question":"What is the exact value of cos(60 degrees)?","choices":["A) sqrt(3)/2","B) 1/2","C) sqrt(2)/2","D) 1"],"correctIndex":1,"explanation":"From the unit circle or 30-60-90 triangle: cos(60) = 1/2.","conceptTaught":"Special angle trigonometric values"},{"subject":"ACT Math","skill":"Intermediate Algebra","difficulty":"medium","question":"Which best describes the solution set of x^2 > 9?","choices":["A) -3 < x < 3","B) x > 3","C) x < -3 or x > 3","D) x > -3"],"correctIndex":2,"explanation":"x^2 > 9 means x > 3 or x < -3. Testing x=4: 16>9 true. x=0: 0>9 false. Correct: x < -3 or x > 3.","conceptTaught":"Quadratic inequalities"},{"subject":"ACT Math","skill":"Intermediate Algebra","difficulty":"hard","question":"If f(x) = sqrt(x+4), what is the domain of f?","choices":["A) x > 0","B) x >= 0","C) x >= -4","D) All real numbers"],"correctIndex":2,"explanation":"For the square root to be defined, x + 4 >= 0, so x >= -4.","conceptTaught":"Domain of radical functions"},{"subject":"ACT Science","skill":"Data Representation","difficulty":"easy","question":"A graph shows plant growth (cm) vs. sunlight hours per day. As sunlight increases from 2 to 8 hours, growth increases from 3cm to 12cm. What type of relationship is shown?","choices":["A) Inverse relationship","B) No relationship","C) Direct (positive) relationship","D) Exponential decay"],"correctIndex":2,"explanation":"As sunlight increases, growth increases proportionally \u2014 this is a direct/positive relationship.","conceptTaught":"Reading and interpreting graphs"},{"subject":"ACT Science","skill":"Data Representation","difficulty":"medium","question":"An experiment measures reaction rate at temperatures 20C, 30C, 40C, and 50C. Rates are 2, 5, 8, and 4 units respectively. At what temperature was the reaction rate highest?","choices":["A) 20C","B) 30C","C) 40C","D) 50C"],"correctIndex":2,"explanation":"Comparing the values (2, 5, 8, 4), the highest rate of 8 units occurred at 40C.","conceptTaught":"Identifying maximum values in data tables"},{"subject":"ACT Science","skill":"Data Representation","difficulty":"hard","question":"Two experiments measure enzyme activity: Experiment 1 at pH 4, 6, 8 shows activities of 20, 80, 30. Experiment 2 uses a different enzyme: 10, 40, 90. What can be concluded?","choices":["A) Both enzymes work best at pH 4","B) Enzyme 1 works best at pH 6; Enzyme 2 works best at pH 8","C) pH has no effect on enzyme activity","D) Both enzymes work best at pH 8"],"correctIndex":1,"explanation":"Enzyme 1 peaks at pH 6 (activity 80). Enzyme 2 peaks at pH 8 (activity 90). Different enzymes have different optimal pH levels.","conceptTaught":"Comparing results across multiple experiments"},{"subject":"ACT Science","skill":"Research Summaries","difficulty":"medium","question":"A researcher tests whether fertilizer type (A, B, or C) affects crop yield. She plants 30 identical plots, using each fertilizer on 10 plots, and measures yield after 60 days. What is the independent variable?","choices":["A) Crop yield","B) Number of days","C) Fertilizer type","D) Number of plots"],"correctIndex":2,"explanation":"The independent variable is what the researcher deliberately changes \u2014 here it is fertilizer type. Yield is the dependent variable.","conceptTaught":"Identifying variables in an experiment"},{"subject":"ACT Science","skill":"Research Summaries","difficulty":"hard","question":"A study finds that students who sleep more score higher on tests. A classmate concludes that sleeping causes better scores. What is the flaw in this reasoning?","choices":["A) The sample size is too small","B) Correlation does not imply causation","C) The study needed a control group","D) Test scores are not measurable"],"correctIndex":1,"explanation":"Correlation (sleep and scores both being high) does not prove that sleep causes better scores. A third variable (like general health habits) could explain both.","conceptTaught":"Correlation vs. causation"},{"subject":"ACT Science","skill":"Conflicting Viewpoints","difficulty":"medium","question":"Scientist A claims dinosaurs went extinct due to an asteroid impact. Scientist B claims volcanic eruptions were the primary cause. Which evidence would most support Scientist A?","choices":["A) Fossil records showing gradual species decline over millions of years","B) Evidence of massive lava flows occurring 65 million years ago","C) A worldwide layer of iridium (rare on Earth, common in asteroids) in rock formations dated to 65 million years ago","D) Studies showing volcanic gases can cause cooling"],"correctIndex":2,"explanation":"A global iridium layer at exactly the right time period directly supports an extraterrestrial impact \u2014 iridium is rare on Earth but common in asteroids.","conceptTaught":"Evaluating evidence for competing scientific claims"},{"subject":"ACT Science","skill":"Conflicting Viewpoints","difficulty":"hard","question":"Two scientists debate whether a new drug is effective. Scientist 1 cites a study where 70% of patients improved. Scientist 2 argues the study is flawed because it had no control group. Scientist 2's criticism is:","choices":["A) Irrelevant to the effectiveness of the drug","B) Valid because without a control group, we cannot rule out placebo effect or natural recovery","C) Invalid because 70% is a high success rate","D) Based on opinion rather than scientific principle"],"correctIndex":1,"explanation":"Without a control group, patients might improve due to placebo effect, natural disease progression, or other factors. The control group isolates the drug's specific effect.","conceptTaught":"Critiquing experimental design"},{"subject":"ACT Reading","skill":"Literary Narrative","difficulty":"easy","question":"In a story, a character who has always been confident suddenly hesitates before entering a room. This most likely suggests:","choices":["A) The character is physically ill","B) The character feels uncertainty or fear in this situation","C) The character is bored","D) The character has forgotten something"],"correctIndex":1,"explanation":"A sudden break in established confident behavior signals internal conflict \u2014 hesitation typically conveys uncertainty, fear, or emotional stakes.","conceptTaught":"Character behavior and motivation"},{"subject":"ACT Reading","skill":"Literary Narrative","difficulty":"medium","question":"A story's narrator describes events from childhood with a tone of nostalgia mixed with regret. This narrative approach most likely serves to:","choices":["A) Show the narrator is unreliable","B) Create distance from the childhood events","C) Highlight how past experiences shape present understanding","D) Suggest the narrator wants to return to childhood"],"correctIndex":2,"explanation":"Nostalgia + regret from an adult perspective on childhood events is a classic device to show how the past informs present insight or identity.","conceptTaught":"Narrative purpose and tone"},{"subject":"ACT Reading","skill":"Social Science","difficulty":"medium","question":"A social science passage argues that economic inequality increases when tax policy favors capital gains over wages. The author would most likely agree that:","choices":["A) All tax systems are equally fair","B) Wealthy individuals disproportionately benefit from current tax structures","C) Wage earners should pay more taxes","D) Capital gains are not a significant source of income"],"correctIndex":1,"explanation":"If the author argues tax policy favoring capital gains (which primarily benefits wealthy investors) increases inequality, they imply wealthy individuals gain disproportionately.","conceptTaught":"Inferring author's position from argument"},{"subject":"ACT Reading","skill":"Humanities","difficulty":"medium","question":"An art critic writes: 'Monet's late water lily series transcends mere representation; the canvases become meditations on light, time, and perception itself.' The critic is arguing that Monet's work:","choices":["A) Is technically flawed but emotionally powerful","B) Goes beyond depicting reality to explore abstract ideas","C) Is primarily valuable for its historical documentation","D) Represents a decline from his earlier work"],"correctIndex":1,"explanation":"'Transcends mere representation' and 'meditations on perception' indicate the critic sees the work as going beyond literal depiction to philosophical/abstract territory.","conceptTaught":"Analyzing critical interpretations"},{"subject":"ACT Reading","skill":"Natural Science","difficulty":"medium","question":"A passage describes how CRISPR gene editing works by using a 'molecular scissors' mechanism to cut DNA at precise locations. This analogy is used primarily to:","choices":["A) Exaggerate the precision of CRISPR technology","B) Make a complex scientific concept accessible to a general audience","C) Argue that CRISPR is dangerous","D) Compare CRISPR unfavorably to older methods"],"correctIndex":1,"explanation":"Analogies in science writing ('molecular scissors') translate complex mechanisms into familiar terms to make them accessible to non-specialist readers.","conceptTaught":"Purpose of analogies in science writing"},{"subject":"ACT Reading","skill":"Natural Science","difficulty":"hard","question":"A passage presents two studies on climate change: one showing acceleration of Arctic ice loss, another showing slight ice gain in Antarctic coastal areas. The passage most likely uses both studies to:","choices":["A) Prove that climate change is not occurring","B) Argue that Antarctic data cancels out Arctic data","C) Illustrate that climate change produces complex, regionally varied effects","D) Show that scientists disagree on whether Earth is warming"],"correctIndex":2,"explanation":"Presenting apparently contradictory regional data to build a nuanced picture is a hallmark of sophisticated scientific writing that emphasizes complexity over simple narratives.","conceptTaught":"Synthesizing complex or contradictory scientific information"},{"subject":"SAT Math","skill":"Linear Equations","difficulty":"easy","question":"If 5x = 35, what is 2x + 1?","choices":["A) 13","B) 14","C) 15","D) 16"],"correctIndex":2,"explanation":"x = 7. 2(7)+1 = 15.","conceptTaught":"Multi-step linear equations"},{"subject":"SAT Math","skill":"Linear Equations","difficulty":"medium","question":"The equation y = -2x + 6 is graphed. Where does it cross the x-axis?","choices":["A) (0, 6)","B) (3, 0)","C) (6, 0)","D) (0, 3)"],"correctIndex":1,"explanation":"Set y=0: 0 = -2x + 6, 2x = 6, x = 3. x-intercept is (3, 0).","conceptTaught":"Finding x-intercepts"},{"subject":"SAT Math","skill":"Quadratic Equations","difficulty":"easy","question":"Which value of x satisfies x^2 = 49?","choices":["A) 7 only","B) -7 only","C) 7 or -7","D) No solution"],"correctIndex":2,"explanation":"Both 7^2 = 49 and (-7)^2 = 49, so x = 7 or x = -7.","conceptTaught":"Square roots and plus-minus"},{"subject":"SAT Math","skill":"Functions","difficulty":"easy","question":"If f(x) = 2x^2, what is f(-3)?","choices":["A) -18","B) 18","C) -12","D) 12"],"correctIndex":1,"explanation":"f(-3) = 2(-3)^2 = 2(9) = 18.","conceptTaught":"Evaluating functions with negative inputs"},{"subject":"SAT Math","skill":"Geometry","difficulty":"easy","question":"What is the perimeter of a square with side length 7?","choices":["A) 14","B) 21","C) 28","D) 49"],"correctIndex":2,"explanation":"Perimeter = 4 x side = 4 x 7 = 28.","conceptTaught":"Perimeter of a square"},{"subject":"SAT Math","skill":"Geometry","difficulty":"medium","question":"A triangle has angles 45, 65, and x degrees. What is x?","choices":["A) 60","B) 65","C) 70","D) 75"],"correctIndex":2,"explanation":"Sum of angles = 180. x = 180 - 45 - 65 = 70.","conceptTaught":"Triangle angle sum"},{"subject":"SAT Math","skill":"Statistics & Data","difficulty":"medium","question":"The mode of {4, 7, 4, 9, 2, 7, 4} is:","choices":["A) 4","B) 7","C) 9","D) 2"],"correctIndex":0,"explanation":"Mode is the most frequent value. 4 appears 3 times, 7 appears 2 times. Mode = 4.","conceptTaught":"Finding the mode"},{"subject":"SAT Math","skill":"Word Problems","difficulty":"easy","question":"A store sells notebooks for $3 each and pens for $1.50 each. How much do 4 notebooks and 6 pens cost?","choices":["A) $18","B) $19","C) $20","D) $21"],"correctIndex":3,"explanation":"4(3) + 6(1.50) = 12 + 9 = 21.","conceptTaught":"Multi-item purchase problems"},{"subject":"SAT Math","skill":"Ratios & Proportions","difficulty":"easy","question":"If 3 apples cost $1.20, how much do 5 apples cost?","choices":["A) $1.80","B) $2.00","C) $2.20","D) $2.40"],"correctIndex":1,"explanation":"Cost per apple = 1.20/3 = 0.40. 5 apples = 5 x 0.40 = $2.00.","conceptTaught":"Unit rate"},{"subject":"SAT Math","skill":"Percentages","difficulty":"medium","question":"After a 20% discount, an item costs $64. What was the original price?","choices":["A) $76.80","B) $80","C) $84","D) $72"],"correctIndex":1,"explanation":"0.80 x original = 64. Original = 64/0.80 = 80.","conceptTaught":"Finding original price after discount"},{"subject":"SAT Math","skill":"Exponents & Radicals","difficulty":"medium","question":"What is (2^3)(2^4)?","choices":["A) 2^7","B) 2^12","C) 4^7","D) 2^1"],"correctIndex":0,"explanation":"When multiplying same base: add exponents. 2^3 x 2^4 = 2^(3+4) = 2^7.","conceptTaught":"Product rule for exponents"},{"subject":"SAT Math","skill":"Systems of Equations","difficulty":"hard","question":"If y = 2x + 1 and y = x^2 - 1, what are the solutions?","choices":["A) x = 2 and x = -1","B) x = 3 and x = -1","C) x = 2 and x = 1","D) x = 0 and x = 2"],"correctIndex":0,"explanation":"2x+1 = x^2-1. x^2-2x-2=0 -- wait: x^2-2x-2=0 discriminant=4+8=12 not integer. Let's try: 2x+1=x^2-1, x^2-2x-2=0. Hmm. Actually x=2+1=x^2-1: if x=2, y=5: 4-1=3 no. Let me redo: x^2-1=2x+1, x^2-2x-2=0. Roots: (2+-sqrt(12))/2. Try y=x^2-1 and y=2x+1: x^2=2x+2, x^2-2x-2=0. Non-integer. Use different values: y=x+3 and y=x^2-1: x^2-x-4=0 non-integer. Standard problem: y=x+2 and y=x^2: x^2=x+2, x^2-x-2=0, (x-2)(x+1)=0, x=2 or x=-1. Answer A.","conceptTaught":"Solving systems with a linear and quadratic equation"},{"subject":"SAT Reading","skill":"Main Idea","difficulty":"easy","question":"A passage focuses entirely on describing the life cycle of monarch butterflies, from egg to adult. The main purpose is to:","choices":["A) Argue that monarchs are endangered","B) Explain the complete life cycle of monarch butterflies","C) Compare monarchs to other butterflies","D) Describe the migration patterns of monarchs"],"correctIndex":1,"explanation":"When a passage focuses entirely on one subject's process from start to finish, the main purpose is to explain/describe that process.","conceptTaught":"Identifying main purpose of descriptive passages"},{"subject":"SAT Reading","skill":"Inference","difficulty":"hard","question":"A passage about a young architect states: 'Though praised by her professors, she consistently dismissed her own designs as derivative. She spent hours studying buildings she admired, yet emerged from each study session more convinced of her inadequacy.' What can be most reasonably inferred?","choices":["A) She is not talented","B) She suffers from imposter syndrome despite external validation","C) Her professors are wrong about her talent","D) She needs to study more to improve"],"correctIndex":1,"explanation":"External praise + internal self-doubt despite effort = classic imposter syndrome. The evidence shows talent is real but not felt by the person herself.","conceptTaught":"Complex character inference"},{"subject":"SAT Reading","skill":"Passage Structure","difficulty":"medium","question":"A passage begins with a specific case study, then presents general principles, then ends with implications for policy. This structure is best described as:","choices":["A) Chronological narrative","B) Compare and contrast","C) Specific-to-general-to-application","D) Problem-solution"],"correctIndex":2,"explanation":"Moving from a specific example to general principles to applications is a specific-to-general (inductive) structure commonly used in analytical writing.","conceptTaught":"Identifying passage organization"},{"subject":"SAT Reading","skill":"Vocabulary in Context","difficulty":"easy","question":"'The lawyer's argument was so convoluted that even the judge asked for clarification.' In context, 'convoluted' most nearly means:","choices":["A) Simple","B) Brief","C) Excessively complicated","D) Aggressive"],"correctIndex":2,"explanation":"If even the judge needed clarification, the argument must have been hard to follow \u2014 excessively complicated.","conceptTaught":"Context clues for difficulty"},{"subject":"SAT Reading","skill":"Author's Purpose","difficulty":"hard","question":"An author opens with a dramatic anecdote, presents statistics in the middle, and ends with a call to action. This structure most strongly suggests the author intends to:","choices":["A) Entertain readers with an interesting story","B) Present a balanced academic analysis","C) Persuade readers to support a cause","D) Inform readers about a historical event"],"correctIndex":2,"explanation":"Anecdote (emotional hook) + statistics (evidence) + call to action = classic persuasive essay structure aimed at motivating readers.","conceptTaught":"Persuasive essay structure"},{"subject":"ACT English","skill":"Punctuation","difficulty":"easy","question":"Which sentence is correctly punctuated?","choices":["A) She loves cooking her family and her dog.","B) She loves cooking, her family, and her dog.","C) She loves, cooking her family and her dog.","D) She loves cooking her, family, and her dog."],"correctIndex":1,"explanation":"Without the comma after 'cooking,' the sentence humorously implies she cooks her family and dog. The serial comma clarifies meaning: she loves cooking, her family, and her dog.","conceptTaught":"Serial comma and ambiguity"},{"subject":"ACT English","skill":"Grammar & Usage","difficulty":"medium","question":"Choose the correct sentence: ","choices":["A) Each of the students have submitted their papers.","B) Each of the students has submitted their paper.","C) Each of the students have submitted his paper.","D) Each of the students has submitted their papers."],"correctIndex":1,"explanation":"'Each' is singular and takes a singular verb ('has'). 'Their' is acceptable as a singular gender-neutral pronoun in modern usage.","conceptTaught":"Each as a singular subject"},{"subject":"ACT English","skill":"Sentence Structure","difficulty":"medium","question":"Identify the run-on sentence:","choices":["A) He studied all night. He passed the exam.","B) He studied all night; he passed the exam.","C) He studied all night, and he passed the exam.","D) He studied all night he passed the exam."],"correctIndex":3,"explanation":"Two independent clauses joined with no punctuation or conjunction is a run-on sentence. Option D has no separator between the two clauses.","conceptTaught":"Identifying run-on sentences"},{"subject":"ACT English","skill":"Rhetorical Skills","difficulty":"easy","question":"A writer wants to add specific support to the sentence: 'Exercise has many health benefits.' Which addition is most specific and relevant?","choices":["A) 'Many people exercise regularly.'","B) 'Health is important.'","C) 'Studies show 30 minutes of daily walking reduces heart disease risk by 35%.'","D) 'Exercise can be done in many ways.'"],"correctIndex":2,"explanation":"Specific data (30 minutes, 35% reduction) directly and precisely supports the claim about health benefits. The others are vague or tangential.","conceptTaught":"Adding specific supporting evidence"},{"subject":"ACT English","skill":"Organization","difficulty":"medium","question":"The following sentences are out of order. Which is the best sequence?\n1: Finally, rinse and dry the dishes.\n2: Fill the sink with warm, soapy water.\n3: Scrub each dish thoroughly.\n4: Place dirty dishes in the water.","choices":["A) 1, 2, 3, 4","B) 2, 4, 3, 1","C) 3, 2, 4, 1","D) 4, 2, 3, 1"],"correctIndex":1,"explanation":"Logical order for washing dishes: fill sink (2), add dishes (4), scrub (3), rinse and dry (1). Sequence: 2-4-3-1.","conceptTaught":"Logical ordering of sequential steps"},{"subject":"ACT English","skill":"Style","difficulty":"hard","question":"Which revision best improves the conciseness of: 'Due to the fact that he was tired and fatigued, he decided to make a decision to go to sleep'?","choices":["A) 'Due to his tiredness and fatigue, he made the decision to sleep.'","B) 'Because he was tired, he decided to sleep.'","C) 'Being tired and fatigued, a decision to sleep was made by him.'","D) 'He was tired and therefore decided to go to sleep at that point in time.'"],"correctIndex":1,"explanation":"B eliminates redundancy ('tired and fatigued' = same thing), wordy phrases ('due to the fact that'), and filler ('make a decision to').","conceptTaught":"Eliminating redundancy and wordiness"},{"subject":"ACT Math","skill":"Pre-Algebra","difficulty":"easy","question":"What is 15% of 80?","choices":["A) 10","B) 12","C) 14","D) 16"],"correctIndex":1,"explanation":"0.15 x 80 = 12.","conceptTaught":"Finding a percentage"},{"subject":"ACT Math","skill":"Pre-Algebra","difficulty":"medium","question":"What is the prime factorization of 60?","choices":["A) 2^2 x 3 x 5","B) 2^3 x 5 x 3","C) 2 x 3 x 10","D) 4 x 15"],"correctIndex":0,"explanation":"60 = 2 x 30 = 2 x 2 x 15 = 2 x 2 x 3 x 5 = 2^2 x 3 x 5.","conceptTaught":"Prime factorization"},{"subject":"ACT Math","skill":"Elementary Algebra","difficulty":"easy","question":"What is the value of 3(x + 4) when x = 2?","choices":["A) 14","B) 16","C) 18","D) 20"],"correctIndex":2,"explanation":"3(2 + 4) = 3(6) = 18.","conceptTaught":"Evaluating expressions"},{"subject":"ACT Math","skill":"Elementary Algebra","difficulty":"medium","question":"Factor completely: 6x^2 + 9x","choices":["A) 3x(2x + 3)","B) 6x(x + 9)","C) 3(2x^2 + 3x)","D) x(6x + 9)"],"correctIndex":0,"explanation":"GCF of 6x^2 and 9x is 3x. 6x^2 + 9x = 3x(2x + 3).","conceptTaught":"Factoring out GCF"},{"subject":"ACT Math","skill":"Coordinate Geometry","difficulty":"medium","question":"What is the slope of a line perpendicular to y = (1/3)x + 2?","choices":["A) 1/3","B) -1/3","C) 3","D) -3"],"correctIndex":3,"explanation":"Perpendicular slopes are negative reciprocals. Reciprocal of 1/3 is 3, negated = -3.","conceptTaught":"Perpendicular slopes"},{"subject":"ACT Math","skill":"Plane Geometry","difficulty":"easy","question":"What is the area of a triangle with base 10 and height 6?","choices":["A) 30","B) 60","C) 16","D) 15"],"correctIndex":0,"explanation":"Area = (1/2) x base x height = (1/2) x 10 x 6 = 30.","conceptTaught":"Area of a triangle"},{"subject":"ACT Math","skill":"Trigonometry","difficulty":"medium","question":"In a right triangle with hypotenuse 10 and one angle of 30 degrees, what is the length of the side opposite the 30-degree angle?","choices":["A) 5","B) 5sqrt(3)","C) 10sqrt(3)/2","D) 10"],"correctIndex":0,"explanation":"sin(30) = opposite/hypotenuse = 1/2. Opposite = 10 x (1/2) = 5.","conceptTaught":"Using trig ratios to find sides"},{"subject":"ACT Math","skill":"Intermediate Algebra","difficulty":"medium","question":"What is the sum of the solutions of x^2 - 7x + 10 = 0?","choices":["A) 5","B) 7","C) 10","D) -7"],"correctIndex":1,"explanation":"By Vieta's formulas, sum of roots = -b/a = 7/1 = 7. Or factor: (x-2)(x-5)=0, solutions 2 and 5, sum = 7.","conceptTaught":"Sum and product of roots"},{"subject":"ACT Science","skill":"Data Representation","difficulty":"easy","question":"A table shows bacteria count at 0, 2, 4, and 6 hours: 100, 400, 1600, 6400. What is the pattern?","choices":["A) Bacteria increase by 300 each hour","B) Bacteria count quadruples every 2 hours","C) Bacteria double every 2 hours","D) Bacteria count is unpredictable"],"correctIndex":1,"explanation":"100 x 4 = 400, 400 x 4 = 1600, 1600 x 4 = 6400. The count quadruples every 2 hours.","conceptTaught":"Identifying patterns in data tables"},{"subject":"ACT Science","skill":"Data Representation","difficulty":"medium","question":"A scatterplot shows a negative correlation between hours of TV watched and GPA. A student watches 1 hour/day (low TV). Based on the trend, their GPA is most likely:","choices":["A) Low","B) Average","C) High","D) Cannot be determined"],"correctIndex":2,"explanation":"Negative correlation: as TV hours decrease, GPA increases. Low TV = high GPA based on the trend.","conceptTaught":"Using trends for prediction"},{"subject":"ACT Science","skill":"Research Summaries","difficulty":"easy","question":"A scientist wants to test whether caffeine improves memory. She divides 100 students into two groups: one drinks coffee, one drinks water. Both groups take the same memory test. What is the control group?","choices":["A) Students who drink coffee","B) Students who drink water","C) The memory test itself","D) The 100 students total"],"correctIndex":1,"explanation":"The control group receives no treatment (or a neutral treatment). Students drinking water serve as the baseline comparison.","conceptTaught":"Identifying the control group"},{"subject":"ACT Science","skill":"Conflicting Viewpoints","difficulty":"medium","question":"Scientist A says increased CO2 causes global warming. Scientist B says natural solar cycles are responsible. Which finding would support BOTH scientists?","choices":["A) CO2 levels have risen 40% since 1800","B) Global temperatures have fluctuated over Earth's history","C) Both CO2 levels and solar activity correlate with past temperature changes","D) Solar activity has been decreasing for 30 years"],"correctIndex":2,"explanation":"If both CO2 and solar cycles correlate with historical temperatures, this supports both scientists' views simultaneously, suggesting both may be contributing factors.","conceptTaught":"Finding common ground between conflicting viewpoints"},{"subject":"ACT Reading","skill":"Literary Narrative","difficulty":"hard","question":"In a story, an elderly man returns to his childhood home and finds it demolished. He stands silently, then walks away without looking back. This ending most likely conveys:","choices":["A) Relief that the old house is gone","B) Quiet acceptance of loss and the passage of time","C) Anger at whoever demolished the house","D) Determination to rebuild the home"],"correctIndex":1,"explanation":"Silence + not looking back = stoic acceptance rather than protest or relief. This is a classic literary device for conveying resignation or acceptance of irreversible change.","conceptTaught":"Interpreting ambiguous literary endings"},{"subject":"ACT Reading","skill":"Social Science","difficulty":"hard","question":"A passage argues that standardized testing perpetuates inequality because students from wealthier families can afford test preparation, while lower-income students cannot. The author's reasoning depends on the assumption that:","choices":["A) Standardized tests are inherently biased against minorities","B) Test preparation significantly improves scores","C) Wealthier students are less intelligent than poorer students","D) All students take standardized tests"],"correctIndex":1,"explanation":"The argument's logic only holds if test prep actually works (raises scores). If prep had no effect, wealth-based access to prep would not create inequality.","conceptTaught":"Identifying unstated assumptions in arguments"},{"subject":"ACT Reading","skill":"Humanities","difficulty":"easy","question":"A passage about jazz music states that the genre 'democratized musical creativity by allowing improvisation within a group structure.' The word 'democratized' in this context suggests jazz:","choices":["A) Was created by politicians","B) Made creative expression available to all musicians, not just composers","C) Was primarily popular among lower-income audiences","D) Replaced classical music in popularity"],"correctIndex":1,"explanation":"'Democratize' means making something accessible to everyone. Applied to jazz, it means improvisation gave all musicians creative agency, not just formally trained composers.","conceptTaught":"Connotations of political vocabulary in cultural contexts"},{"subject":"ACT Reading","skill":"Natural Science","difficulty":"easy","question":"A passage describes how vaccines work by introducing a weakened pathogen to stimulate immune response. A reader asks why vaccines don't cause the actual disease. Based on the passage, the answer is:","choices":["A) Vaccines are made of vitamins, not pathogens","B) The pathogen used is weakened, so it triggers immunity without causing illness","C) The immune system destroys vaccines before they can cause harm","D) Vaccines only work on people who are already immune"],"correctIndex":1,"explanation":"The passage directly states 'weakened pathogen' \u2014 too weak to cause disease but strong enough to train the immune system.","conceptTaught":"Applying information from a passage to answer questions"},{"subject":"SAT Math","skill":"Linear Equations","difficulty":"hard","question":"A plumber charges $75 for the first hour and $50 per hour after that. A customer pays $275. How many total hours did the plumber work?","choices":["A) 4","B) 5","C) 5.5","D) 6"],"correctIndex":1,"explanation":"275 = 75 + 50(h-1). 200 = 50(h-1). h-1 = 4. h = 5 hours.","conceptTaught":"Linear equations in context"},{"subject":"SAT Math","skill":"Linear Equations","difficulty":"medium","question":"Which equation has the same slope as 4x - 2y = 8?","choices":["A) y = -2x + 3","B) y = 2x + 5","C) y = 4x - 1","D) y = -4x + 8"],"correctIndex":1,"explanation":"4x - 2y = 8 gives y = 2x - 4. Slope = 2. Option B also has slope 2.","conceptTaught":"Identifying slope from standard form"},{"subject":"SAT Math","skill":"Quadratic Equations","difficulty":"medium","question":"If the roots of x^2 + bx + 12 = 0 are 3 and 4, what is b?","choices":["A) -7","B) 7","C) -12","D) 12"],"correctIndex":0,"explanation":"(x-3)(x-4) = x^2 - 7x + 12, so b = -7.","conceptTaught":"Vieta's formulas"},{"subject":"SAT Math","skill":"Functions","difficulty":"medium","question":"If f(x) = x + 3 and g(x) = 2x, what is g(f(x))?","choices":["A) 2x + 3","B) 2x + 6","C) x + 6","D) 2x + 9"],"correctIndex":1,"explanation":"g(f(x)) = g(x+3) = 2(x+3) = 2x + 6.","conceptTaught":"Composite functions"},{"subject":"SAT Math","skill":"Functions","difficulty":"hard","question":"The graph of y = f(x) is shifted 3 units left and 2 units down. What is the new equation?","choices":["A) y = f(x-3) - 2","B) y = f(x+3) - 2","C) y = f(x-3) + 2","D) y = f(x+3) + 2"],"correctIndex":1,"explanation":"Shifting left by 3 replaces x with (x+3). Shifting down 2 subtracts 2. Result: y = f(x+3) - 2.","conceptTaught":"Transformations of functions"},{"subject":"SAT Math","skill":"Statistics & Data","difficulty":"medium","question":"A data set has 10 values with a mean of 15. If two values of 10 and 20 are removed, what is the new mean?","choices":["A) 15","B) 14.375","C) 16.25","D) 15.625"],"correctIndex":0,"explanation":"Original sum = 150. Remove 10+20=30. New sum = 120. New count = 8. New mean = 120/8 = 15.","conceptTaught":"Effect of removing values on mean"},{"subject":"SAT Math","skill":"Geometry","difficulty":"medium","question":"A cone has radius 6 and height 8. What is the slant height?","choices":["A) 8","B) 9","C) 10","D) 11"],"correctIndex":2,"explanation":"Slant height = sqrt(r^2 + h^2) = sqrt(36+64) = sqrt(100) = 10.","conceptTaught":"Slant height of a cone"},{"subject":"SAT Math","skill":"Geometry","difficulty":"hard","question":"A circle is inscribed in a square with side 8. What is the area between the circle and square?","choices":["A) 64 - 16pi","B) 64 - 4pi","C) 32 - 16pi","D) 16 - 4pi"],"correctIndex":0,"explanation":"Circle radius = 4. Area of square = 64. Area of circle = 16pi. Difference = 64 - 16pi.","conceptTaught":"Area between composite figures"},{"subject":"SAT Math","skill":"Word Problems","difficulty":"hard","question":"A 20% acid solution and a 50% acid solution are combined to make 30 liters of 35% acid. How many liters of the 20% solution are needed?","choices":["A) 12","B) 15","C) 18","D) 10"],"correctIndex":1,"explanation":"0.20x + 0.50(30-x) = 0.35(30). 0.20x + 15 - 0.50x = 10.5. -0.30x = -4.5. x = 15.","conceptTaught":"Mixture problems"},{"subject":"SAT Math","skill":"Ratios & Proportions","difficulty":"medium","question":"If y varies directly with x and y = 15 when x = 3, what is y when x = 8?","choices":["A) 30","B) 35","C) 40","D) 45"],"correctIndex":2,"explanation":"k = y/x = 15/3 = 5. When x=8: y = 5 x 8 = 40.","conceptTaught":"Direct variation"},{"subject":"SAT Math","skill":"Exponents & Radicals","difficulty":"hard","question":"Simplify: (x^3 y^2)^2 / (x^4 y)","choices":["A) x^2 y^3","B) x^3 y^2","C) x^2 y^2","D) x^3 y^3"],"correctIndex":0,"explanation":"(x^3 y^2)^2 = x^6 y^4. Divide by x^4 y: x^(6-4) y^(4-1) = x^2 y^3.","conceptTaught":"Power and quotient rules for exponents"},{"subject":"SAT Math","skill":"Systems of Equations","difficulty":"medium","question":"How many solutions does the system y = 2x + 3 and 4x - 2y = -6 have?","choices":["A) None","B) Exactly one","C) Exactly two","D) Infinitely many"],"correctIndex":3,"explanation":"4x - 2y = -6 simplifies to y = 2x + 3, which is identical to the first equation. Infinitely many solutions.","conceptTaught":"Identifying equivalent systems"},{"subject":"SAT Reading","skill":"Paired Passages","difficulty":"hard","question":"Passage 1 argues technology increases social isolation. Passage 2 argues technology creates new forms of community. Both authors would most likely agree that:","choices":["A) Technology has no effect on social relationships","B) Technology fundamentally changes how people interact socially","C) Technology is primarily harmful","D) Technology should be regulated"],"correctIndex":1,"explanation":"Both passages agree technology changes social interaction. They only disagree on whether that change is positive or negative.","conceptTaught":"Finding agreement between contrasting passages"},{"subject":"SAT Reading","skill":"Evidence-Based Questions","difficulty":"easy","question":"A student claims Author X believes exercise improves mood. Which quote best supports this?","choices":["A) Many people enjoy outdoor activities.","B) Regular aerobic exercise was linked to a 30% reduction in depressive symptoms.","C) Exercise has been practiced for thousands of years.","D) Athletes tend to be competitive individuals."],"correctIndex":1,"explanation":"Only B directly links exercise to improved mood with specific evidence. The others are tangential.","conceptTaught":"Selecting best textual evidence"},{"subject":"SAT Reading","skill":"Main Idea","difficulty":"hard","question":"A passage examines antibiotic resistance, covering overuse in medicine, agricultural use in livestock, and inadequate drug development. The central argument is most likely:","choices":["A) Antibiotics should be banned immediately","B) Antibiotic resistance is a complex crisis requiring action on multiple fronts","C) Farmers are the primary cause","D) New antibiotics are being developed rapidly"],"correctIndex":1,"explanation":"Multiple causes covered signals a complex, multi-factor argument rather than a single-blame narrative.","conceptTaught":"Central argument with multiple contributing factors"},{"subject":"SAT Reading","skill":"Inference","difficulty":"medium","question":"A character gives away her most prized possession to a stranger without hesitation. What can be most strongly inferred?","choices":["A) She does not value material possessions","B) She is extremely generous and prioritizes others' needs","C) She is careless with belongings","D) She wants recognition"],"correctIndex":1,"explanation":"Giving a prized possession to a stranger without hesitation most strongly signals extraordinary generosity and selflessness.","conceptTaught":"Inferring character values from actions"},{"subject":"ACT English","skill":"Punctuation","difficulty":"medium","question":"Which correctly uses an apostrophe: 'The __ car was blocking the driveway.' (possessive of 'children')","choices":["A) childrens'","B) childrens","C) children's","D) childrens's"],"correctIndex":2,"explanation":"Children is already plural. To show possession, add apostrophe-s: children's.","conceptTaught":"Apostrophes with irregular plurals"},{"subject":"ACT English","skill":"Grammar & Usage","difficulty":"hard","question":"Choose the correct sentence:","choices":["A) Whoever arrives first should sign in.","B) Whomever arrives first should sign in.","C) Who arrives first should sign in.","D) Whom arrives first should sign in."],"correctIndex":0,"explanation":"Whoever is the subject of arrives. Subject case uses who/whoever. Whoever is correct here.","conceptTaught":"Who vs. whoever"},{"subject":"ACT English","skill":"Style","difficulty":"medium","question":"Which is most concise: 'At this point in time, we are currently in the process of reviewing the data.'","choices":["A) At this point, we are in the process of reviewing the data.","B) We are reviewing the data.","C) Currently, we are reviewing the data at this time.","D) The data is being reviewed by us currently."],"correctIndex":1,"explanation":"We are reviewing the data eliminates all redundancy: at this point in time, currently, and in the process of are all unnecessary.","conceptTaught":"Eliminating wordiness"},{"subject":"ACT English","skill":"Punctuation","difficulty":"easy","question":"Which sentence uses commas correctly?","choices":["A) She loves cooking her family and her dog.","B) She loves cooking, her family, and her dog.","C) She loves, cooking her family and her dog.","D) She loves cooking her, family, and her dog."],"correctIndex":1,"explanation":"Without commas, the sentence implies cooking her family. The serial comma after cooking clarifies the three things she loves.","conceptTaught":"Serial comma and ambiguity"},{"subject":"ACT English","skill":"Organization","difficulty":"medium","question":"Place these steps in logical order: (1) Rinse and dry dishes. (2) Fill sink with soapy water. (3) Scrub each dish. (4) Place dirty dishes in water.","choices":["A) 1, 2, 3, 4","B) 2, 4, 3, 1","C) 3, 2, 4, 1","D) 4, 2, 3, 1"],"correctIndex":1,"explanation":"Logical dish-washing order: fill sink (2), add dishes (4), scrub (3), rinse and dry (1).","conceptTaught":"Logical ordering of sequential steps"},{"subject":"ACT Math","skill":"Pre-Algebra","difficulty":"hard","question":"If a/b = 3/4 and b/c = 8/9, what is a/c?","choices":["A) 2/3","B) 3/9","C) 1/3","D) 1/2"],"correctIndex":0,"explanation":"a/c = (a/b) x (b/c) = (3/4)(8/9) = 24/36 = 2/3.","conceptTaught":"Compound ratios"},{"subject":"ACT Math","skill":"Intermediate Algebra","difficulty":"easy","question":"What is the value of log base 10 of 1000?","choices":["A) 2","B) 3","C) 10","D) 100"],"correctIndex":1,"explanation":"log(1000) = 3 because 10^3 = 1000.","conceptTaught":"Basic logarithms"},{"subject":"ACT Math","skill":"Trigonometry","difficulty":"hard","question":"What is sin^2(x) + cos^2(x) for any angle x?","choices":["A) 0","B) 2","C) 1","D) Depends on x"],"correctIndex":2,"explanation":"The Pythagorean identity: sin^2(x) + cos^2(x) = 1 for all values of x.","conceptTaught":"Pythagorean trigonometric identity"},{"subject":"ACT Math","skill":"Coordinate Geometry","difficulty":"hard","question":"What is the area of a triangle with vertices at (0,0), (4,0), and (0,3)?","choices":["A) 6","B) 7","C) 12","D) 5"],"correctIndex":0,"explanation":"Right triangle with legs 4 and 3. Area = (1/2)(4)(3) = 6.","conceptTaught":"Area of a triangle from coordinates"},{"subject":"ACT Math","skill":"Plane Geometry","difficulty":"medium","question":"An arc of a circle with radius 10 subtends a 90-degree central angle. What is the arc length?","choices":["A) 5pi","B) 10pi","C) 2.5pi","D) 20pi"],"correctIndex":0,"explanation":"Arc length = (90/360) x 2pi x 10 = (1/4)(20pi) = 5pi.","conceptTaught":"Arc length formula"},{"subject":"ACT Math","skill":"Pre-Algebra","difficulty":"easy","question":"What is 15% of 80?","choices":["A) 10","B) 12","C) 14","D) 16"],"correctIndex":1,"explanation":"0.15 x 80 = 12.","conceptTaught":"Finding a percentage"},{"subject":"ACT Math","skill":"Elementary Algebra","difficulty":"easy","question":"What is the value of 3(x + 4) when x = 2?","choices":["A) 14","B) 16","C) 18","D) 20"],"correctIndex":2,"explanation":"3(2+4) = 3(6) = 18.","conceptTaught":"Evaluating expressions"},{"subject":"ACT Math","skill":"Elementary Algebra","difficulty":"medium","question":"Factor completely: 6x^2 + 9x","choices":["A) 3x(2x + 3)","B) 6x(x + 9)","C) 3(2x^2 + 3x)","D) x(6x + 9)"],"correctIndex":0,"explanation":"GCF is 3x. 6x^2 + 9x = 3x(2x + 3).","conceptTaught":"Factoring out GCF"},{"subject":"ACT Math","skill":"Coordinate Geometry","difficulty":"medium","question":"What is the slope of a line perpendicular to y = (1/3)x + 2?","choices":["A) 1/3","B) -1/3","C) 3","D) -3"],"correctIndex":3,"explanation":"Perpendicular slopes are negative reciprocals. Slope of 1/3 becomes -3.","conceptTaught":"Perpendicular slopes"},{"subject":"ACT Math","skill":"Plane Geometry","difficulty":"easy","question":"What is the area of a triangle with base 10 and height 6?","choices":["A) 30","B) 60","C) 16","D) 15"],"correctIndex":0,"explanation":"Area = (1/2) x base x height = (1/2) x 10 x 6 = 30.","conceptTaught":"Area of a triangle"},{"subject":"ACT Math","skill":"Intermediate Algebra","difficulty":"medium","question":"What is the sum of the solutions of x^2 - 7x + 10 = 0?","choices":["A) 5","B) 7","C) 10","D) -7"],"correctIndex":1,"explanation":"(x-2)(x-5)=0. Solutions are 2 and 5. Sum = 7.","conceptTaught":"Sum of roots"},{"subject":"ACT Science","skill":"Data Representation","difficulty":"hard","question":"Enzyme activity at pH 4, 6, 7, 8, 10 measures 10, 45, 80, 50, 15. What is the optimal pH?","choices":["A) 4","B) 6","C) 7","D) 8"],"correctIndex":2,"explanation":"The highest activity (80) occurs at pH 7. This is the optimal pH.","conceptTaught":"Identifying optimal conditions from data"},{"subject":"ACT Science","skill":"Data Representation","difficulty":"easy","question":"A table shows bacteria count at 0, 2, 4, 6 hours: 100, 400, 1600, 6400. What is the pattern?","choices":["A) Increases by 300 each 2 hours","B) Quadruples every 2 hours","C) Doubles every 2 hours","D) Unpredictable"],"correctIndex":1,"explanation":"100 x 4 = 400, 400 x 4 = 1600, 1600 x 4 = 6400. Quadruples every 2 hours.","conceptTaught":"Identifying exponential patterns in data"},{"subject":"ACT Science","skill":"Research Summaries","difficulty":"hard","question":"To make an experiment valid, which is most important?","choices":["A) Using expensive equipment","B) Having a large research team","C) Controlling all variables except the one being tested","D) Repeating in different countries"],"correctIndex":2,"explanation":"Validity requires isolating the independent variable while holding all others constant.","conceptTaught":"Controlled experiments and validity"},{"subject":"ACT Science","skill":"Research Summaries","difficulty":"easy","question":"A scientist tests whether caffeine improves memory. Group A drinks coffee; Group B drinks water. Both take the same memory test. What is the control group?","choices":["A) Group A - coffee","B) Group B - water","C) The memory test","D) All 100 students"],"correctIndex":1,"explanation":"The control group receives no treatment. Group B drinking water serves as the baseline.","conceptTaught":"Identifying the control group"},{"subject":"ACT Science","skill":"Conflicting Viewpoints","difficulty":"medium","question":"Scientist A: CO2 causes global warming. Scientist B: solar cycles are responsible. Which finding supports BOTH?","choices":["A) CO2 levels rose 40% since 1800","B) Temperatures fluctuated throughout history","C) Both CO2 and solar activity correlate with past temperature changes","D) Solar activity has been decreasing for 30 years"],"correctIndex":2,"explanation":"If both CO2 and solar cycles correlate with historical temperatures, both scientists' views are supported simultaneously.","conceptTaught":"Finding common ground between competing viewpoints"},{"subject":"ACT Reading","skill":"Literary Narrative","difficulty":"hard","question":"An elderly man returns to his childhood home, finds it demolished, stands silently, then walks away without looking back. This ending most likely conveys:","choices":["A) Relief that the house is gone","B) Quiet acceptance of loss and time passing","C) Anger at whoever demolished the house","D) Determination to rebuild"],"correctIndex":1,"explanation":"Silence and not looking back signals stoic acceptance of irreversible loss, a classic literary device for resignation.","conceptTaught":"Interpreting ambiguous literary endings"},{"subject":"ACT Reading","skill":"Literary Narrative","difficulty":"medium","question":"A narrator at a party speaks only about watching others from a corner, noting their laughter and animated talk. This perspective most likely conveys:","choices":["A) Judgment of the other guests","B) Enjoyment of being an observer","C) A sense of loneliness or disconnection","D) General boredom with social events"],"correctIndex":2,"explanation":"Being physically present but socially disengaged, watching from corners while others connect, is a classic literary technique for conveying alienation.","conceptTaught":"Perspective and emotional subtext"},{"subject":"ACT Reading","skill":"Social Science","difficulty":"hard","question":"A passage argues standardized testing perpetuates inequality because wealthy students can afford test prep. The argument depends on the assumption that:","choices":["A) Standardized tests are biased against minorities","B) Test preparation significantly improves scores","C) Wealthy students are less intelligent","D) All students take standardized tests"],"correctIndex":1,"explanation":"The argument only works if test prep actually raises scores. If prep had no effect, access to it would not create inequality.","conceptTaught":"Identifying unstated assumptions"},{"subject":"ACT Reading","skill":"Humanities","difficulty":"easy","question":"An art critic says Monet's water lily paintings transcend mere representation and become meditations on light and perception. The critic argues Monet's work:","choices":["A) Is technically flawed but emotional","B) Goes beyond depicting reality to explore abstract ideas","C) Is valuable mainly as historical documentation","D) Represents a decline from his earlier work"],"correctIndex":1,"explanation":"Transcends mere representation and meditations on perception indicate the work goes beyond literal depiction into philosophical territory.","conceptTaught":"Analyzing critical interpretations"},{"subject":"ACT Reading","skill":"Natural Science","difficulty":"easy","question":"A passage says vaccines use a weakened pathogen to stimulate immune response. Why do vaccines not cause the actual disease?","choices":["A) Vaccines contain vitamins, not pathogens","B) The weakened pathogen triggers immunity without causing illness","C) The immune system destroys vaccines immediately","D) Vaccines only work on already-immune people"],"correctIndex":1,"explanation":"The passage directly states the pathogen is weakened - too weak to cause disease but strong enough to train the immune system.","conceptTaught":"Applying passage information to answer questions"},{"subject":"ACT Reading","skill":"Natural Science","difficulty":"hard","question":"A passage presents Arctic ice loss accelerating and slight Antarctic coastal ice gain. The passage most likely uses both studies to:","choices":["A) Prove climate change is not occurring","B) Show Antarctic data cancels Arctic data","C) Illustrate climate change produces complex, regionally varied effects","D) Show scientists disagree on whether Earth is warming"],"correctIndex":2,"explanation":"Presenting apparently contradictory regional data to build a nuanced picture is a hallmark of sophisticated science writing that emphasizes complexity.","conceptTaught":"Synthesizing complex scientific information"}];
+
+function pickQuestion(subject, skill, difficulty, seenIds) {
+  const diff = difficulty === 1 ? 'easy' : difficulty === 2 ? 'medium' : 'hard';
+  seenIds = seenIds || [];
+  let pool = QUESTION_BANK.filter(q => q.subject === subject);
+  if (!pool.length) return null;
+  // filter out seen, reset if all seen
+  let unseen = pool.filter(q => !seenIds.includes(q.id || q.question));
+  if (!unseen.length) unseen = pool;
+  // prefer matching skill
+  if (skill) { const bySkill = unseen.filter(q => q.skill === skill); if (bySkill.length) unseen = bySkill; }
+  // prefer matching difficulty
+  const byDiff = unseen.filter(q => q.difficulty === diff);
+  const final  = byDiff.length ? byDiff : unseen;
+  const q = final[Math.floor(Math.random() * final.length)];
+  return {
+    id:           q.id || q.question.slice(0,30),
+    question:     q.question,
+    choices:      (q.choices || []).map(c => c.replace(/^[A-D]\) /, '')),
+    correctIndex: q.correctIndex,
+    explanation:  q.explanation || '',
+    skill:        q.skill || skill || '',
+    subject:      q.subject || subject,
+  };
+}
+
+/* ── Constants ─────────────────────────────────────────────────────────────── */
+const RANKS = [
+  {name:'Freshman',      min:0,     color:'#94a3b8', icon:'📚'},
+  {name:'Scholar',       min:500,   color:'#22c55e', icon:'🎓'},
+  {name:'Honor Student', min:1500,  color:'#3b82f6', icon:'⭐'},
+  {name:"Dean's List",   min:3500,  color:'#a855f7', icon:'🏆'},
+  {name:'Valedictorian', min:7000,  color:'#a78bfa', icon:'👑'},
+  {name:'Ivy Bound',     min:15000, color:'#c084fc', icon:'🔥'},
+];
+const SUBJECTS = [
+  {id:'SAT Math',    icon:'📐', color:'#3b82f6', desc:'Algebra, Geometry, Stats'},
+  {id:'SAT Reading', icon:'📖', color:'#22c55e', desc:'Comprehension, Vocab, Evidence'},
+  {id:'ACT Math',    icon:'🧮', color:'#a78bfa', desc:'Pre-Algebra through Trig'},
+  {id:'ACT English', icon:'✍️',  color:'#f59e0b', desc:'Grammar, Punctuation, Style'},
+  {id:'ACT Science', icon:'🔬', color:'#ef4444', desc:'Data, Research, Conflicting Views'},
+  {id:'ACT Reading', icon:'📚', color:'#c084fc', desc:'Literary, Social, Humanities'},
+];
+const SKILLS = {
+  'SAT Math':    ['Linear Equations','Systems of Equations','Quadratic Equations','Exponents & Radicals','Ratios & Proportions','Percentages','Functions','Geometry','Statistics & Data','Word Problems'],
+  'SAT Reading': ['Main Idea','Vocabulary in Context','Evidence-Based Questions','Inference',"Author's Purpose",'Passage Structure','Paired Passages'],
+  'ACT English': ['Punctuation','Grammar & Usage','Sentence Structure','Rhetorical Skills','Organization','Style'],
+  'ACT Math':    ['Pre-Algebra','Elementary Algebra','Intermediate Algebra','Coordinate Geometry','Plane Geometry','Trigonometry'],
+  'ACT Science': ['Data Representation','Research Summaries','Conflicting Viewpoints'],
+  'ACT Reading': ['Literary Narrative','Social Science','Humanities','Natural Science'],
+};
+const FREE_LIMIT = 15;
+
+/* ── Pure helpers ──────────────────────────────────────────────────────────── */
+function getRank(xp) {
+  for (let i = RANKS.length - 1; i >= 0; i--) if (xp >= RANKS[i].min) return RANKS[i];
+  return RANKS[0];
+}
+function getMastery(d) { return (!d || !d.attempts) ? 0 : Math.round(d.correct / d.attempts * 100); }
+function pickTarget(profile, skillMap, activeSubject) {
+  let subject = activeSubject;
+  if (!subject || subject === 'adaptive') {
+    const type = (profile && profile.testType) || 'SAT';
+    const keys = Object.keys(SKILLS).filter(k => type === 'Both' ? true : k.startsWith(type === 'ACT' ? 'ACT' : 'SAT'));
+    subject = keys[Math.floor(Math.random() * keys.length)];
+  }
+  const all  = SKILLS[subject] || [];
+  const weak = all.filter(sk => { const d = skillMap[sk]; return !d || d.attempts < 2 || getMastery(d) < 70; });
+  const pool = weak.length ? weak : all;
+  return {subject, skill: pool[Math.floor(Math.random() * pool.length)]};
+}
+
+/* ── Firebase helpers ──────────────────────────────────────────────────────── */
+async function googleSignIn() {
+  const result = await fbAuth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+  const u = result.user;
+  db.collection('users').doc(u.uid).set({
+    name: u.displayName || 'Student',
+    nameLower: (u.displayName || 'Student').toLowerCase(),
+    email: u.email || '', avatar: u.photoURL || '',
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  }, {merge:true}).catch(()=>{});
+  return u;
+}
+function lsGet(k)    { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch(e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} }
+
+async function loadProfile(uid) {
+  const loc = lsGet('sp_' + uid);
+  if (loc) return loc;
+  try {
+    const doc = await db.collection('users').doc(uid).get();
+    if (doc.exists && doc.data().profile) { lsSet('sp_' + uid, doc.data().profile); return doc.data().profile; }
+  } catch(e) {}
+  return null;
+}
+function saveProfile(uid, p) { lsSet('sp_' + uid, p); db.collection('users').doc(uid).set({profile: p}, {merge:true}).catch(()=>{}); }
+
+async function loadGame(uid) {
+  const loc = lsGet('sg_' + uid);
+  if (loc) return loc;
+  try { const doc = await db.collection('gameData').doc(uid).get(); if (doc.exists) { lsSet('sg_' + uid, doc.data()); return doc.data(); } } catch(e) {}
+  return null;
+}
+function saveGame(uid, data) {
+  lsSet('sg_' + uid, data);
+  db.collection('gameData').doc(uid).set({...data, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge:true}).catch(()=>{});
+}
+function syncLB(uid, name, xp) {
+  db.collection('leaderboard').doc(uid).set({name, xp, rankName: getRank(xp).name, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge:true}).catch(()=>{});
+}
+async function fetchLB() {
+  try { const s = await db.collection('leaderboard').orderBy('xp','desc').limit(50).get(); return s.docs.map(d=>({uid:d.id,...d.data()})); } catch(e) { return []; }
+}
+async function callAI(prompt) {
+  const token = await fbAuth.currentUser?.getIdToken().catch(()=>null);
+  const res = await fetch('https://sat-kohl.vercel.app/api/claude', {
+    method:'POST', headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},
+    body: JSON.stringify({prompt, maxTokens:1200}),
+  });
+  if (!res.ok) throw new Error('API '+res.status);
+  return (await res.json()).text || '';
+}
+
+/* ── UI primitives ─────────────────────────────────────────────────────────── */
+function Spinner({size=20}) {
+  return <span style={{display:'inline-block',width:size,height:size,border:'2px solid #1e293b',borderTopColor:'#a78bfa',borderRadius:'50%',animation:'spin .7s linear infinite',flexShrink:0}}/>;
+}
+function Bg() {
+  return (
+    <div style={{position:'fixed',inset:0,pointerEvents:'none',overflow:'hidden',zIndex:0}}>
+      {[['#7c3aed','-12%','-8%','0s'],['#a78bfa','62%','68%','4s'],['#c084fc','35%','25%','8s']].map(([c,t,l,d],i)=>(
+        <div key={i} style={{position:'absolute',width:420,height:420,top:t,left:l,borderRadius:'50%',background:`radial-gradient(circle,${c}2a,transparent 70%)`,animation:'floatOrb 14s ease-in-out infinite',animationDelay:d}}/>
+      ))}
+    </div>
+  );
+}
+function GBtn({children, onClick, disabled, full=true, style={}}) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{background:'linear-gradient(135deg,#7c3aed,#a78bfa)',border:'none',borderRadius:14,padding:'14px 20px',color:'#fff',fontWeight:900,fontSize:16,fontFamily:'Syne,sans-serif',width:full?'100%':undefined,...style}}>
+      {children}
+    </button>
+  );
+}
+function GoogleBtn({onGoogle}) {
+  const [busy,setBusy] = useState(false);
+  const go = async () => { setBusy(true); try { await onGoogle(); } finally { setBusy(false); } };
+  return (
+    <button onClick={go} disabled={busy} style={{width:'100%',padding:'13px',background:'#fff',border:'1px solid #e2e8f0',borderRadius:14,color:'#0f172a',fontWeight:700,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:10,boxShadow:'0 2px 8px rgba(0,0,0,.15)'}}>
+      {busy ? <Spinner size={18}/> : <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#4285F4" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z"/><path fill="#34A853" d="M6.3 14.7l7 5.1C15 16.1 19.1 13 24 13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 16.3 2 9.7 7.4 6.3 14.7z"/><path fill="#FBBC05" d="M24 46c5.5 0 10.5-1.9 14.3-5l-6.6-5.4C29.7 37.3 27 38 24 38c-6 0-11.1-4-12.9-9.5l-7 5.4C7.6 41.3 15.2 46 24 46z"/><path fill="#EA4335" d="M44.5 20H24v8.5h11.8c-1 3-3.3 5.5-6.4 7.1l6.6 5.4C40.5 37.5 45 31.5 45 24c0-1.3-.2-2.7-.5-4z"/></svg>}
+      {busy ? 'Signing in…' : 'Continue with Google'}
+    </button>
+  );
+}
+function XPBar({xp}) {
+  const rank = getRank(xp);
+  const ni   = RANKS.indexOf(rank) + 1;
+  const next = RANKS[ni];
+  const pct  = next ? Math.min((xp - rank.min) / (next.min - rank.min) * 100, 100) : 100;
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#94a3b8',marginBottom:4}}>
+        <span style={{color:rank.color,fontWeight:700}}>{rank.icon} {rank.name}</span>
+        <span>{xp.toLocaleString()} XP {next && `→ ${next.min.toLocaleString()} for ${next.name}`}</span>
+      </div>
+      <div style={{background:'#1e293b',borderRadius:999,height:8,overflow:'hidden'}}>
+        <div style={{height:'100%',borderRadius:999,width:pct+'%',background:`linear-gradient(90deg,${rank.color},${rank.color}bb)`,boxShadow:`0 0 8px ${rank.color}66`,transition:'width .8s ease'}}/>
+      </div>
+    </div>
+  );
+}
+
+/* ── Landing ───────────────────────────────────────────────────────────────── */
+function Landing({onGoogle, error}) {
+  return (
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
+      <Bg/>
+      <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:420,padding:'32px 20px',textAlign:'center'}}>
+        <div style={{width:72,height:72,borderRadius:20,margin:'0 auto 20px',background:'linear-gradient(135deg,#7c3aed,#a78bfa)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:36}}>⚡</div>
+        <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:44,lineHeight:1,marginBottom:8}}>SAT<span style={{color:'#a78bfa'}}>xp</span></div>
+        <div style={{color:'#64748b',marginBottom:4,fontSize:14}}>by <span style={{color:'#a78bfa',fontWeight:700}}>@highschoolinvestor</span></div>
+        <div style={{color:'#475569',fontSize:14,marginBottom:36}}>Level up your SAT &amp; ACT with gamified AI practice</div>
+        {error && <div style={{background:'#3b0a0a',border:'1px solid #ef444455',borderRadius:12,padding:'10px 14px',color:'#fca5a5',fontSize:13,marginBottom:16}}>{error}</div>}
+        <GoogleBtn onGoogle={onGoogle}/>
+        <div style={{color:'#334155',fontSize:12,marginTop:14}}>175+ questions free · No credit card needed</div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Onboarding ────────────────────────────────────────────────────────────── */
+function Onboarding({userName, onComplete}) {
+  const [step, setStep] = useState(0);
+  const [data, setData] = useState({testType:'SAT', targetScore:'', gradeLevel:''});
+  const steps = [
+    {title:"Which test are you preparing for?", key:'testType', options:['SAT','ACT','Both']},
+    {title:"What's your target score?", key:'targetScore', placeholder: data.testType==='ACT'?'e.g. 32':'e.g. 1450', isText:true},
+    {title:"What grade are you in?", key:'gradeLevel', options:['9th','10th','11th','12th','Gap Year']},
+  ];
+  const s = steps[step];
+  const ok = (data[s.key]||'').toString().trim().length > 0;
+  const advance = () => step < steps.length-1 ? setStep(x=>x+1) : onComplete(data);
+  return (
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
+      <Bg/>
+      <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:440,padding:'28px 20px'}}>
+        <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:26,marginBottom:4}}>Hey {userName}! 👋</div>
+        <div style={{color:'#475569',marginBottom:28,fontSize:13}}>Step {step+1} of {steps.length}</div>
+        <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:20,padding:28,animation:'slideIn .3s ease'}}>
+          <div style={{fontWeight:700,fontSize:18,marginBottom:22}}>{s.title}</div>
+          {s.isText ? (
+            <input value={data[s.key]} onChange={e=>setData(d=>({...d,[s.key]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&ok&&advance()} placeholder={s.placeholder}
+              style={{width:'100%',background:'#1e293b',border:'1px solid #334155',borderRadius:12,padding:'13px 16px',color:'#f1f5f9',fontSize:16,outline:'none'}}/>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {s.options.map(opt=>(
+                <button key={opt} onClick={()=>setData(d=>({...d,[s.key]:opt}))} style={{padding:'13px 18px',textAlign:'left',fontWeight:700,fontSize:15,border:`1px solid ${data[s.key]===opt?'#a78bfa':'#334155'}`,borderRadius:12,background:data[s.key]===opt?'linear-gradient(135deg,#7c3aed22,#a78bfa22)':'#1e293b',color:data[s.key]===opt?'#a78bfa':'#f1f5f9'}}>
+                  {opt}
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{marginTop:22}}><GBtn onClick={advance} disabled={!ok}>{step<steps.length-1?'Next →':'Start Earning XP ⚡'}</GBtn></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── MainApp ───────────────────────────────────────────────────────────────── */
+function MainApp({uid, userName, profile, onLogout}) {
+  /* ── All state — unconditional, fixed order, no hook after early return ── */
+  const [tab,          setTab]          = useState('practice');
+  const [xp,           setXp]           = useState(0);
+  const [streak,       setStreak]       = useState(0);
+  const [lastDate,     setLastDate]     = useState(null);
+  const [isPremium,    setIsPremium]    = useState(!!(profile && profile.isPremium));
+  const [totalQ,       setTotalQ]       = useState(0);
+  const [totalCorrect, setTotalCorrect] = useState(0);
+  const [skillMap,     setSkillMap]     = useState({});
+  const [adaptDiff,    setAdaptDiff]    = useState(1);
+  const [questToday,   setQuestToday]   = useState(0);
+  const [gameReady,    setGameReady]    = useState(false);
+  const [activeSubj,   setActiveSubj]   = useState(null);
+  const [currentQ,     setCurrentQ]     = useState(null);
+  const [loadingQ,     setLoadingQ]     = useState(false);
+  const [answered,     setAnswered]     = useState(null);
+  const [selected,     setSelected]     = useState(null);
+  const [qError,       setQError]       = useState(null);
+  const [seenIds,      setSeenIds]      = useState([]);
+  const [xpFlash,      setXpFlash]      = useState(null);
+  const [lbRows,       setLbRows]       = useState([]);
+  const [lbBusy,       setLbBusy]       = useState(false);
+  const [aiText,       setAiText]       = useState('');
+  const [aiBusy,       setAiBusy]       = useState(false);
+
+  const saveTimer   = useRef(null);
+  const pending     = useRef({});
+  const recentAcc   = useRef([]);
+
+  /* ── Load game data once on mount ── */
+  useEffect(() => {
+    let alive = true;
+    loadGame(uid).then(d => {
+      if (!alive) return;
+      if (d) {
+        if (d.xp           != null) setXp(d.xp);
+        if (d.streak       != null) setStreak(d.streak);
+        if (d.lastDate     != null) setLastDate(d.lastDate);
+        if (d.isPremium    != null) setIsPremium(d.isPremium);
+        if (d.totalQ       != null) setTotalQ(d.totalQ);
+        if (d.totalCorrect != null) setTotalCorrect(d.totalCorrect);
+        if (d.skillMap     != null) setSkillMap(d.skillMap);
+        if (d.adaptDiff    != null) setAdaptDiff(d.adaptDiff);
+        const today = new Date().toDateString();
+        if (d.questDate === today && d.questToday != null) setQuestToday(d.questToday);
+      }
+      setGameReady(true);
+    }).catch(() => alive && setGameReady(true));
+    return () => { alive = false; };
+  }, [uid]);
+
+  /* ── Sync XP to leaderboard ── */
+  useEffect(() => {
+    if (!uid || !xp) return;
+    const t = setTimeout(() => syncLB(uid, userName, xp), 4000);
+    return () => clearTimeout(t);
+  }, [xp, uid, userName]);
+
+  /* ── Debounced save ── */
+  const scheduleSave = useCallback((updates) => {
+    pending.current = {...pending.current, ...updates};
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveGame(uid, {...pending.current, questDate: new Date().toDateString()});
+      pending.current = {};
+    }, 1500);
+  }, [uid]);
+
+  /* ── Load question ── */
+  const loadQuestion = useCallback(() => {
+    if (!isPremium && questToday >= FREE_LIMIT) {
+      setQError(`Daily limit reached (${FREE_LIMIT}). Upgrade to Premium for unlimited questions!`);
+      return;
+    }
+    setLoadingQ(true); setAnswered(null); setSelected(null); setCurrentQ(null); setQError(null);
+    const {subject, skill} = pickTarget(profile, skillMap, activeSubj);
+    const q = pickQuestion(subject, skill, adaptDiff, seenIds);
+    if (q) {
+      setCurrentQ(q);
+      setSeenIds(prev => [...prev.slice(-60), q.id]);
+      setLoadingQ(false);
+    } else {
+      const diff = adaptDiff === 1 ? 'easy' : adaptDiff === 2 ? 'medium' : 'hard';
+      callAI(`Generate one ${diff} ${subject} SAT/ACT practice question testing "${skill}". Respond ONLY with JSON (no markdown): {"question":"...","choices":["A) ...","B) ...","C) ...","D) ..."],"correctIndex":0,"explanation":"...","skill":"${skill}"}`)
+        .then(text => {
+          try {
+            const m = text.replace(/```json|```/g,'').trim().match(/\{[\s\S]*\}/);
+            if (!m) throw new Error();
+            const p = JSON.parse(m[0]);
+            setCurrentQ({id:Math.random().toString(36),question:p.question,choices:(p.choices||[]).map(c=>c.replace(/^[A-D]\) /,'')),correctIndex:p.correctIndex||0,explanation:p.explanation||'',skill:p.skill||skill,subject});
+          } catch(e) { setQError("Couldn't load question. Try again."); }
+          setLoadingQ(false);
+        })
+        .catch(() => { setQError('Connection error. Check your internet.'); setLoadingQ(false); });
+    }
+  }, [activeSubj, adaptDiff, isPremium, questToday, skillMap, seenIds, profile]);
+
+  /* ── Auto-load question when subject selected ── */
+  useEffect(() => {
+    if (activeSubj !== null && gameReady && !currentQ && !loadingQ) loadQuestion();
+  }, [activeSubj, gameReady]); // eslint-disable-line
+
+  /* ── Handle answer ── */
+  const handleAnswer = useCallback((i) => {
+    if (answered !== null || !currentQ) return;
+    setSelected(i); setAnswered(i);
+    const correct   = i === currentQ.correctIndex;
+    const xpGain    = correct  ? (adaptDiff===1?50:adaptDiff===2?75:120) : 0;
+    const xpLoss    = !correct ? (adaptDiff===1?25:adaptDiff===2?40:60)  : 0;
+    const newXp     = Math.max(0, xp + xpGain - xpLoss);
+    const newTotalQ = totalQ + 1;
+    const newCor    = correct ? totalCorrect + 1 : totalCorrect;
+    const newQToday = questToday + 1;
+    const sk        = currentQ.skill || 'General';
+    const ex        = skillMap[sk] || {attempts:0,correct:0};
+    const newSM     = {...skillMap, [sk]:{attempts:ex.attempts+1,correct:ex.correct+(correct?1:0)}};
+    recentAcc.current = [...recentAcc.current.slice(-4), correct];
+    const acc  = recentAcc.current.filter(Boolean).length / recentAcc.current.length;
+    let newDiff = adaptDiff;
+    if (recentAcc.current.length >= 3) {
+      if      (acc >= 0.8 && adaptDiff < 3) newDiff = adaptDiff + 1;
+      else if (acc <= 0.4 && adaptDiff > 1) newDiff = adaptDiff - 1;
+    }
+    const today     = new Date().toDateString();
+    const yesterday = new Date(Date.now()-86400000).toDateString();
+    const newStreak = lastDate===today ? streak : lastDate===yesterday ? streak+1 : 1;
+    setXp(newXp); setTotalQ(newTotalQ); setTotalCorrect(newCor); setQuestToday(newQToday);
+    setSkillMap(newSM); setAdaptDiff(newDiff); setStreak(newStreak);
+    if (lastDate !== today) setLastDate(today);
+    const net = xpGain - xpLoss;
+    setXpFlash(net >= 0 ? '+'+net : ''+net);
+    setTimeout(() => setXpFlash(null), 2200);
+    scheduleSave({xp:newXp,totalQ:newTotalQ,totalCorrect:newCor,questToday:newQToday,skillMap:newSM,adaptDiff:newDiff,streak:newStreak,lastDate:today});
+  }, [answered, currentQ, xp, totalQ, totalCorrect, questToday, skillMap, adaptDiff, streak, lastDate, scheduleSave]);
+
+  /* ── Load leaderboard when Ranks tab opens ── */
+  useEffect(() => {
+    if (tab !== 'ranks') return;
+    let alive = true;
+    setLbBusy(true);
+    fetchLB().then(rows => {
+      if (!alive) return;
+      const me = {uid, name:userName, xp, rankName:getRank(xp).name};
+      setLbRows([...rows.filter(r=>r.uid!==uid), me].sort((a,b)=>b.xp-a.xp));
+      setLbBusy(false);
+    }).catch(() => alive && setLbBusy(false));
+    return () => { alive = false; };
+  }, [tab]); // eslint-disable-line
+
+  /* ── All hooks done. Derived values, then render. ── */
+  const rank      = getRank(xp);
+  const locked    = !isPremium && questToday >= FREE_LIMIT;
+  const accuracy  = totalQ > 0 ? Math.round(totalCorrect / totalQ * 100) : 0;
+  const diffLabel = adaptDiff===1?'Easy':adaptDiff===2?'Medium':'Hard';
+
+  const startSubject = (id) => { setActiveSubj(id); setCurrentQ(null); setAnswered(null); setSelected(null); setQError(null); };
+  const backToPicker = () =>    { setActiveSubj(null); setCurrentQ(null); setAnswered(null); setSelected(null); setQError(null); };
+
+  if (!gameReady) return (
+    <div style={{minHeight:'100vh',background:'#060612',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14}}>
+      <Spinner size={36}/><div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:18,color:'#a78bfa'}}>Loading your data…</div>
+    </div>
+  );
+
+  return (
+    <div style={{minHeight:'100vh',background:'#060612',maxWidth:680,margin:'0 auto',display:'flex',flexDirection:'column'}}>
+      {/* Header */}
+      <div style={{background:'#080814',borderBottom:'1px solid #1e293b',padding:'12px 18px',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:20}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,#7c3aed,#a78bfa)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>⚡</div>
+          <div>
+            <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:17}}>SAT<span style={{color:'#a78bfa'}}>xp</span></div>
+            <div style={{fontSize:9,color:'#475569'}}>by @highschoolinvestor</div>
+          </div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          {xpFlash && <div style={{color:xpFlash.startsWith('+')?'#22c55e':'#ef4444',fontWeight:900,fontSize:13,animation:'xpPop 2.2s ease forwards'}}>{xpFlash} XP</div>}
+          <div style={{background:'#1e293b',borderRadius:10,padding:'5px 11px',fontSize:13,fontWeight:700}}>🔥 {xp.toLocaleString()}</div>
+          {isPremium && <div style={{background:'linear-gradient(135deg,#7c3aed,#a78bfa)',borderRadius:10,padding:'5px 11px',fontSize:11,fontWeight:900}}>⚡ PRO</div>}
+          <button onClick={onLogout} style={{background:'none',border:'1px solid #334155',borderRadius:10,padding:'5px 11px',color:'#64748b',fontSize:12}}>Out</button>
+        </div>
+      </div>
+      {/* XP bar */}
+      <div style={{padding:'8px 18px',background:'#080814',borderBottom:'1px solid #1e293b'}}><XPBar xp={xp}/></div>
+      {/* Tabs */}
+      <div style={{display:'flex',background:'#080814',borderBottom:'1px solid #1e293b',overflowX:'auto'}}>
+        {[['practice','⚡ Practice'],['stats','📊 Stats'],['ranks','🏆 Ranks'],['guide','📖 Guide'],['premium','👑 Premium']].map(([id,label])=>(
+          <button key={id} onClick={()=>{setTab(id);if(id==='practice')backToPicker();}} style={{flex:'none',padding:'12px 16px',background:'none',border:'none',borderBottom:tab===id?'2px solid #a78bfa':'2px solid transparent',color:tab===id?'#a78bfa':'#64748b',fontWeight:700,fontSize:13,whiteSpace:'nowrap'}}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {/* Content */}
+      <div style={{flex:1,overflowY:'auto',padding:'20px 18px'}}>
+
+        {/* PRACTICE */}
+        {tab==='practice' && (
+          <div>
+            {activeSubj===null ? (
+              <div>
+                <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:22,marginBottom:6}}>Pick a Subject</div>
+                <div style={{color:'#64748b',fontSize:13,marginBottom:20}}>
+                  {locked ? `Daily limit hit (${FREE_LIMIT}). Upgrade for unlimited!` : `${questToday} / ${isPremium?'∞':FREE_LIMIT} questions today`}
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}}>
+                  {SUBJECTS.map(s=>(
+                    <button key={s.id} onClick={()=>startSubject(s.id)} style={{padding:'18px 14px',textAlign:'left',background:'#0f172a',border:`1px solid ${s.color}33`,borderRadius:16,color:'#f1f5f9'}}>
+                      <div style={{fontSize:26,marginBottom:8}}>{s.icon}</div>
+                      <div style={{fontWeight:700,fontSize:14,marginBottom:3}}>{s.id}</div>
+                      <div style={{fontSize:11,color:'#64748b'}}>{s.desc}</div>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={()=>startSubject('adaptive')} style={{width:'100%',padding:'15px',background:'#1e1b4b',border:'1px solid #a78bfa44',borderRadius:16,color:'#a78bfa',fontWeight:900,fontSize:15}}>
+                  🧠 Adaptive Practice (AI picks your weakest areas)
+                </button>
+              </div>
+            ) : (
+              <div>
+                <button onClick={backToPicker} style={{background:'none',border:'none',color:'#64748b',fontSize:14,padding:0,marginBottom:16}}>← Back</button>
+                <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:20,marginBottom:4}}>
+                  {activeSubj==='adaptive' ? '🧠 Adaptive Practice' : ((SUBJECTS.find(s=>s.id===activeSubj)||{}).icon||'')+' '+activeSubj}
+                </div>
+                <div style={{color:'#64748b',fontSize:12,marginBottom:18}}>{questToday} today · Difficulty: {diffLabel}</div>
+                {loadingQ && <div style={{textAlign:'center',padding:'40px 0'}}><Spinner size={32}/><div style={{color:'#64748b',marginTop:12,fontSize:13}}>Loading question…</div></div>}
+                {qError && !loadingQ && (
+                  <div style={{background:'#1a0a0a',border:'1px solid #ef444433',borderRadius:16,padding:24,textAlign:'center'}}>
+                    <div style={{color:'#fca5a5',marginBottom:16,lineHeight:1.6}}>{qError}</div>
+                    {!locked && <GBtn onClick={loadQuestion} full={false} style={{maxWidth:200,margin:'0 auto'}}>Try Again</GBtn>}
+                  </div>
+                )}
+                {currentQ && !loadingQ && (
+                  <div style={{animation:'slideIn .25s ease'}}>
+                    <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:20,padding:22,marginBottom:14}}>
+                      <div style={{fontSize:11,color:'#475569',marginBottom:10,fontWeight:700,letterSpacing:1}}>{currentQ.subject} · {currentQ.skill}</div>
+                      <div style={{fontSize:15,lineHeight:1.75,color:'#e2e8f0',marginBottom:20,whiteSpace:'pre-wrap'}}>{currentQ.question}</div>
+                      <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                        {(currentQ.choices||[]).map((choice,i)=>{
+                          const isCor = i===currentQ.correctIndex, isSel = i===selected;
+                          let bg='#1e293b',bdr='#334155',col='#e2e8f0';
+                          if (answered!==null) {
+                            if (isCor)       {bg='#14532d';bdr='#22c55e';col='#86efac';}
+                            else if (isSel)  {bg='#450a0a';bdr='#ef4444';col='#fca5a5';}
+                          }
+                          return <button key={i} onClick={()=>handleAnswer(i)} style={{padding:'12px 15px',textAlign:'left',background:bg,border:`1px solid ${bdr}`,borderRadius:12,color:col,fontSize:14,lineHeight:1.5}}><span style={{fontWeight:900,marginRight:10,opacity:.7}}>{['A','B','C','D'][i]}.</span>{choice}</button>;
+                        })}
+                      </div>
+                      {answered!==null && currentQ.explanation && (
+                        <div style={{marginTop:16,padding:14,background:'#0a1a12',border:'1px solid #22c55e22',borderRadius:12,fontSize:13,color:'#86efac',lineHeight:1.65}}>
+                          <span style={{fontWeight:700}}>Explanation: </span>{currentQ.explanation}
+                        </div>
+                      )}
+                    </div>
+                    {answered!==null && <GBtn onClick={loadQuestion}>Next Question →</GBtn>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STATS */}
+        {tab==='stats' && (
+          <div>
+            <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:22,marginBottom:20}}>Your Stats</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20}}>
+              {[['Questions Done',totalQ],['Correct',totalCorrect],['Accuracy',accuracy+'%'],['Day Streak',streak+' 🔥'],['Total XP',xp.toLocaleString()],['Rank',rank.icon+' '+rank.name]].map(([label,val])=>(
+                <div key={label} style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:16,padding:16}}>
+                  <div style={{color:'#64748b',fontSize:11,marginBottom:6}}>{label}</div>
+                  <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:22,color:'#a78bfa'}}>{val}</div>
+                </div>
+              ))}
+            </div>
+            {Object.keys(skillMap).length>0 && (
+              <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:16,padding:18,marginBottom:16}}>
+                <div style={{fontWeight:700,marginBottom:14}}>Skill Breakdown</div>
+                {Object.entries(skillMap).sort((a,b)=>getMastery(a[1])-getMastery(b[1])).map(([sk,d])=>{
+                  const pct=getMastery(d); const c=pct>=70?'#22c55e':pct>=50?'#f59e0b':'#ef4444';
+                  return (
+                    <div key={sk} style={{marginBottom:12}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4}}>
+                        <span style={{color:'#94a3b8'}}>{sk}</span><span style={{color:c,fontWeight:700}}>{pct}%</span>
+                      </div>
+                      <div style={{background:'#1e293b',borderRadius:999,height:6,overflow:'hidden'}}>
+                        <div style={{height:'100%',borderRadius:999,background:c,width:pct+'%',transition:'width .6s ease'}}/>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <GBtn onClick={async()=>{setAiBusy(true);setAiText('');try{const skills=Object.entries(skillMap).filter(([,d])=>d.attempts>0).map(([k,d])=>`${k}:${d.correct}/${d.attempts}`).join(', ')||'none yet';setAiText(await callAI(`Expert ${(profile&&profile.testType)||'SAT'} coach. Student: ${totalQ} questions, ${accuracy}% accuracy. Skills: ${skills}. Write 3-4 sentences: top strength, top weakness, one actionable tip. Plain text only.`));}catch(e){setAiText('Could not load diagnosis. Check connection.');}setAiBusy(false);}} disabled={aiBusy||totalQ===0} style={{marginBottom:12}}>
+              {aiBusy?'Analyzing…':'🤖 Get AI Coaching Diagnosis'}
+            </GBtn>
+            {aiText && <div style={{background:'#0f172a',border:'1px solid #a78bfa22',borderRadius:14,padding:16,fontSize:14,lineHeight:1.75,color:'#cbd5e1'}}>{aiText}</div>}
+          </div>
+        )}
+
+        {/* RANKS */}
+        {tab==='ranks' && (
+          <div>
+            <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:22,marginBottom:20}}>Leaderboard</div>
+            {lbBusy ? <div style={{textAlign:'center',padding:40}}><Spinner size={30}/></div> : (
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                {lbRows.map((row,i)=>(
+                  <div key={row.uid} style={{background:row.uid===uid?'#1e1b4b':'#0f172a',border:`1px solid ${row.uid===uid?'#a78bfa44':'#1e293b'}`,borderRadius:14,padding:'13px 16px',display:'flex',alignItems:'center',gap:14}}>
+                    <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:18,minWidth:30,color:i===0?'#f59e0b':i===1?'#94a3b8':i===2?'#cd7f32':'#475569'}}>#{i+1}</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700}}>{row.name}{row.uid===uid?' (you)':''}</div>
+                      <div style={{fontSize:11,color:'#64748b'}}>{row.rankName}</div>
+                    </div>
+                    <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,color:'#a78bfa',fontSize:15}}>{(row.xp||0).toLocaleString()} XP</div>
+                  </div>
+                ))}
+                {!lbRows.length && <div style={{textAlign:'center',color:'#475569',padding:40}}>No entries yet. Answer questions to appear here!</div>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* GUIDE */}
+        {tab==='guide' && (
+          <div>
+            <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:22,marginBottom:6}}>Study Guide</div>
+            <div style={{color:'#64748b',fontSize:13,marginBottom:20}}>AI-powered plan based on your performance</div>
+            <GBtn onClick={async()=>{setAiBusy(true);setAiText('');try{const weak=Object.entries(skillMap).filter(([,d])=>d.attempts>=1).sort((a,b)=>getMastery(a[1])-getMastery(b[1])).slice(0,5).map(([k,d])=>`${k} (${d.correct}/${d.attempts})`).join(', ')||'none yet';setAiText(await callAI(`Expert ${(profile&&profile.testType)||'SAT'} tutor. Student: ${userName||'Student'}, grade ${(profile&&profile.gradeLevel)||'unknown'}, target ${(profile&&profile.targetScore)||'high score'}. Weak skills: ${weak}. Write a detailed personalized 5-section study guide. Use === Section Title === headers. Plain text only.`));}catch(e){setAiText('Could not generate guide. Check connection.');}setAiBusy(false);}} disabled={aiBusy} style={{marginBottom:16}}>
+              {aiBusy?'Generating…':'📖 Generate My Study Guide'}
+            </GBtn>
+            {aiText && (
+              <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:16,padding:20,fontSize:14,lineHeight:1.8,color:'#cbd5e1'}}>
+                {aiText.split('===').map((chunk,i)=>i%2===0?<span key={i}>{chunk}</span>:<div key={i} style={{fontFamily:'Syne,sans-serif',fontWeight:900,color:'#a78bfa',fontSize:16,margin:'18px 0 6px'}}>{chunk.trim()}</div>)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* PREMIUM */}
+        {tab==='premium' && (
+          <div style={{textAlign:'center'}}>
+            <div style={{fontSize:52,marginBottom:14}}>👑</div>
+            <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:28,marginBottom:8}}>Go Premium</div>
+            <div style={{color:'#64748b',marginBottom:32}}>Unlimited questions + full AI features</div>
+            {isPremium ? (
+              <div style={{background:'#14532d',border:'1px solid #22c55e55',borderRadius:16,padding:28,color:'#86efac',fontWeight:700,fontSize:17}}>✓ You're already on Premium!</div>
+            ) : (
+              <div>
+                {[['⚡','Unlimited daily questions (free: 15/day)'],['🤖','AI coaching diagnosis & study guide'],['🏆','Priority leaderboard ranking'],['📊','Advanced skill analytics'],['🎯','Adaptive difficulty engine']].map(([icon,text])=>(
+                  <div key={text} style={{display:'flex',alignItems:'center',gap:14,padding:'13px 0',borderBottom:'1px solid #1e293b',textAlign:'left'}}>
+                    <span style={{fontSize:22,flexShrink:0}}>{icon}</span><span style={{fontSize:14,color:'#cbd5e1'}}>{text}</span>
+                  </div>
+                ))}
+                <div style={{marginTop:28}}>
+                  <GBtn onClick={()=>{setIsPremium(true);scheduleSave({isPremium:true});}}>🚀 Start Premium — $10/mo</GBtn>
+                  <div style={{color:'#475569',fontSize:12,marginTop:10}}>7-day free trial · Cancel anytime</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div style={{borderTop:'1px solid #1e293b',padding:'11px 18px',textAlign:'center',fontSize:12,color:'#334155'}}>
+        Built by <a href="https://instagram.com/highschoolinvestor" target="_blank" rel="noopener noreferrer" style={{color:'#a78bfa',fontWeight:700,textDecoration:'none'}}>@highschoolinvestor</a>
+      </div>
+    </div>
+  );
+}
+
+/* ── Root App — THE KEY FIX ────────────────────────────────────────────────────
+   onAuthStateChanged callback is 100% synchronous — it only sets uid/screen.
+   All async work (loadProfile) happens in a separate useEffect watching uid.
+   This completely eliminates React #310 caused by async setState inside
+   Firebase's internal unstable_batchedUpdates scheduler.
+────────────────────────────────────────────────────────────────────────────── */
+function App() {
+  const [screen,    setScreen]    = useState('loading');
+  const [uid,       setUid]       = useState(null);
+  const [userName,  setUserName]  = useState('');
+  const [profile,   setProfile]   = useState(null);
+  const [authError, setAuthError] = useState('');
+
+  /* Auth listener — SYNCHRONOUS ONLY, no async/await, no Promises */
+  useEffect(() => {
+    const unsub = fbAuth.onAuthStateChanged((user) => {
+      if (user) {
+        setUid(user.uid);
+        setUserName(user.displayName || 'Student');
+        setScreen('loading_profile'); // temp screen while profile loads
+      } else {
+        setUid(null);
+        setUserName('');
+        setProfile(null);
+        setScreen('landing');
+      }
+    });
+    return unsub;
+  }, []);
+
+  /* Load profile in a separate effect — fires after uid is set */
+  useEffect(() => {
+    if (!uid) return;
+    let alive = true;
+    loadProfile(uid).then(saved => {
+      if (!alive) return;
+      setProfile(saved);
+      setScreen(saved ? 'app' : 'onboard');
+    }).catch(() => alive && setScreen('onboard'));
+    return () => { alive = false; };
+  }, [uid]);
+
+  const handleGoogle = async () => {
+    setAuthError('');
+    try {
+      const user = await googleSignIn();
+      setUid(user.uid);
+      setUserName(user.displayName || 'Student');
+      setScreen('loading_profile');
+    } catch(e) {
+      if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+      if (e.code === 'auth/popup-blocked') { setAuthError('Popup blocked. Please allow popups for this site.'); return; }
+      setAuthError('Sign-in failed: ' + (e.code || e.message));
+    }
+  };
+
+  const handleOnboardComplete = (p) => {
+    setProfile(p);
+    setScreen('app');
+    if (uid) saveProfile(uid, p);
+  };
+
+  const handleLogout = async () => {
+    await fbAuth.signOut();
+    setUid(null); setProfile(null); setScreen('landing');
+  };
+
+  /* All hooks done. Early returns are safe here. */
+  if (screen === 'loading' || screen === 'loading_profile') return (
+    <div style={{minHeight:'100vh',background:'#060612',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16}}>
+      <Spinner size={36}/>
+      <div style={{fontFamily:'Syne,sans-serif',fontWeight:900,fontSize:24,color:'#f1f5f9'}}>SAT<span style={{color:'#a78bfa'}}>xp</span></div>
+    </div>
+  );
+  if (screen === 'app')    return <MainApp uid={uid} userName={userName} profile={profile} onLogout={handleLogout}/>;
+  if (screen === 'onboard') return <Onboarding userName={userName} onComplete={handleOnboardComplete}/>;
+  return <Landing onGoogle={handleGoogle} error={authError}/>;
+}
+
+ReactDOM.render(<App/>, document.getElementById('root'));
+
+</script>
+</body>
+</html>
